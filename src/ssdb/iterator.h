@@ -8,9 +8,13 @@ found in the LICENSE file.
 
 #include <inttypes.h>
 #include <string>
+#include <deque>
 #include "../util/bytes.h"
+#include "rocksdb/terark_namespace.h"
 
-namespace leveldb{
+using StrPair = std::pair<std::string, std::string>;
+
+namespace TERARKDB_NAMESPACE {
 	class Iterator;
 }
 
@@ -19,7 +23,7 @@ public:
 	enum Direction{
 		FORWARD, BACKWARD
 	};
-	Iterator(leveldb::Iterator *it,
+	Iterator(TERARKDB_NAMESPACE::Iterator *it,
 			const std::string &end,
 			uint64_t limit,
 			Direction direction=Iterator::FORWARD);
@@ -29,7 +33,7 @@ public:
 	Bytes key();
 	Bytes val();
 private:
-	leveldb::Iterator *it;
+	TERARKDB_NAMESPACE::Iterator *it;
 	std::string end;
 	uint64_t limit;
 	bool is_first;
@@ -65,6 +69,9 @@ public:
 private:
 	Iterator *it;
 	bool return_val_;
+	bool valid;
+	int index = -1;
+	std::deque<StrPair> values;
 };
 
 
