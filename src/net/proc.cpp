@@ -36,15 +36,17 @@ void ProcMap::set_proc(const std::string &c, const char *sflags, proc_t proc){
 			case 'r':
 				cmd->flags |= Command::FLAG_READ;
 				break;
-			case 'w': // w 必须和 t 同时出现, 因为某些写操作依赖单线程
+			case 'w':
 				cmd->flags |= Command::FLAG_WRITE;
-				cmd->flags |= Command::FLAG_THREAD;
 				break;
 			case 'b':
 				cmd->flags |= Command::FLAG_BACKEND;
 				break;
 			case 't':
 				cmd->flags |= Command::FLAG_THREAD;
+				break;
+			case 'u':
+				cmd->flags |= Command::FLAG_BLOCK;
 				break;
 		}
 	}

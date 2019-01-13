@@ -42,9 +42,10 @@ public:
 	virtual Status rscan(const std::string &key_start, const std::string &key_end,
 		uint64_t limit, std::vector<std::string> *ret);
 	virtual Status multi_get(const std::vector<std::string> &keys, std::vector<std::string> *ret);
-	virtual Status multi_set(const std::map<std::string, std::string> &kvs);
+	virtual Status multi_set(const std::unordered_map<std::string, std::string> &kvs);
 	virtual Status multi_del(const std::vector<std::string> &keys);
-	
+
+	virtual Status migrate_hset(const std::vector<std::string> &items);
 	virtual Status hget(const std::string &name, const std::string &key, std::string *val);
 	virtual Status hset(const std::string &name, const std::string &key, const std::string &val);
 	virtual Status hdel(const std::string &name, const std::string &key);
@@ -60,7 +61,7 @@ public:
 		uint64_t limit, std::vector<std::string> *ret);
 	virtual Status multi_hget(const std::string &name, const std::vector<std::string> &keys,
 		std::vector<std::string> *ret);
-	virtual Status multi_hset(const std::string &name, const std::map<std::string, std::string> &kvs);
+	virtual Status multi_hset(const std::string &name, const std::unordered_map<std::string, std::string> &kvs);
 	virtual Status multi_hdel(const std::string &name, const std::vector<std::string> &keys);
 
 	virtual Status zget(const std::string &name, const std::string &key, int64_t *ret);
@@ -88,7 +89,7 @@ public:
 		uint64_t limit, std::vector<std::string> *ret);
 	virtual Status multi_zget(const std::string &name, const std::vector<std::string> &keys,
 		std::vector<std::string> *scores);
-	virtual Status multi_zset(const std::string &name, const std::map<std::string, int64_t> &kss);
+	virtual Status multi_zset(const std::string &name, const std::unordered_map<std::string, int64_t> &kss);
 	virtual Status multi_zdel(const std::string &name, const std::vector<std::string> &keys);
 
 	virtual Status qpush(const std::string &name, const std::string &item, int64_t *ret_size=NULL);

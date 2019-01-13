@@ -95,17 +95,7 @@ int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp
 		resp->push_back("links");
 		resp->add(net->link_count);
 	}
-	{
-		int64_t calls = 0;
-		proc_map_t::iterator it;
-		for(it=net->proc_map.begin(); it!=net->proc_map.end(); it++){
-			Command *cmd = it->second;
-			calls += cmd->calls;
-		}
-		resp->push_back("total_calls");
-		resp->add(calls);
-	}
-	
+
 	{
 		uint64_t size = serv->ssdb->size();
 		resp->push_back("dbsize");
@@ -198,7 +188,7 @@ int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp
 		resp->push_back(val);
 	}
 
-	if(req.size() == 1 || req[1] == "leveldb"){
+	if(req.size() == 1 || req[1] == "rocksdb"){
 		std::vector<std::string> tmp = serv->ssdb->info();
 		for(int i=0; i<(int)tmp.size(); i++){
 			std::string block = tmp[i];
@@ -206,18 +196,6 @@ int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp
 		}
 	}
 
-	if(req.size() > 1 && req[1] == "cmd"){
-		proc_map_t::iterator it;
-		for(it=net->proc_map.begin(); it!=net->proc_map.end(); it++){
-			Command *cmd = it->second;
-			resp->push_back("cmd." + cmd->name);
-			char buf[128];
-			snprintf(buf, sizeof(buf), "calls: %" PRIu64 "\ttime_wait: %.0f\ttime_proc: %.0f",
-				cmd->calls, cmd->time_wait, cmd->time_proc);
-			resp->push_back(buf);
-		}
-	}
-	
 	return 0;
 }
 

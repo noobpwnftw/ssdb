@@ -23,7 +23,7 @@ tools/ssdb-dump
 tools/ssdb-bench
 tools/ssdb-repair
 tools/ssdb-migrate
-tools/leveldb-import
+tools/rocksdb-import
 _pack
 build_config.mk
 log.txt
