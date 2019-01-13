@@ -7,11 +7,11 @@ found in the LICENSE file.
 #define SSDB_BINLOG_H_
 
 #include <string>
-#include "leveldb/db.h"
-#include "leveldb/options.h"
-#include "leveldb/slice.h"
-#include "leveldb/status.h"
-#include "leveldb/write_batch.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/status.h"
+#include "rocksdb/write_batch.h"
 #include "../util/thread.h"
 #include "../util/bytes.h"
 
@@ -22,10 +22,10 @@ private:
 	static const unsigned int HEADER_LEN = sizeof(uint64_t) + 2;
 public:
 	Binlog(){}
-	Binlog(uint64_t seq, char type, char cmd, const leveldb::Slice &key);
+	Binlog(uint64_t seq, char type, char cmd, const rocksdb::Slice &key);
 		
 	int load(const Bytes &s);
-	int load(const leveldb::Slice &s);
+	int load(const rocksdb::Slice &s);
 	int load(const std::string &s);
 
 	uint64_t seq() const;
@@ -48,12 +48,14 @@ public:
 // circular queue
 class BinlogQueue{
 private:
-	leveldb::DB *db;
+	rocksdb::DB *db;
+	std::vector<rocksdb::ColumnFamilyHandle*> cfHandles;
+	rocksdb::WriteOptions write_opts;
 	uint64_t min_seq_;
 	uint64_t last_seq;
 	uint64_t tran_seq;
 	int capacity;
-	leveldb::WriteBatch batch;
+	rocksdb::WriteBatch batch;
 
 	volatile bool thread_quit;
 	static void* log_clean_thread_func(void *arg);
@@ -67,16 +69,17 @@ private:
 public:
 	Mutex mutex;
 
-	BinlogQueue(leveldb::DB *db, bool enabled=true, int capacity=20000000);
+	BinlogQueue(rocksdb::DB *db, std::vector<rocksdb::ColumnFamilyHandle*> handles, bool enabled=true, int capacity=20000000);
 	~BinlogQueue();
 	void begin();
 	void rollback();
-	leveldb::Status commit();
-	// leveldb put
-	void Put(const leveldb::Slice& key, const leveldb::Slice& value);
-	// leveldb delete
-	void Delete(const leveldb::Slice& key);
-	void add_log(char type, char cmd, const leveldb::Slice &key);
+	rocksdb::Status commit();
+	// rocksdb put
+	void Put(const rocksdb::Slice& key, const rocksdb::Slice& value);
+	// rocksdb delete
+	void Delete(const rocksdb::Slice& key);
+	void Merge(const rocksdb::Slice& key, const rocksdb::Slice& value);
+	void add_log(char type, char cmd, const rocksdb::Slice &key);
 	void add_log(char type, char cmd, const std::string &key);
 		
 	int get(uint64_t seq, Binlog *log) const;

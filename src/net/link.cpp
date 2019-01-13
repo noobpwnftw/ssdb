@@ -22,6 +22,8 @@ found in the LICENSE file.
 Link::Link(bool is_server){
 	redis = NULL;
 
+	create_time = 0;
+	active_time = 0;
 	sock = -1;
 	noblock_ = false;
 	error_ = false;

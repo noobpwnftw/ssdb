@@ -10,12 +10,12 @@ found in the LICENSE file.
 #include "t_queue.h"
 #include "../util/log.h"
 #include "../util/config.h"
-#include "leveldb/iterator.h"
+#include "rocksdb/iterator.h"
 
-Iterator::Iterator(leveldb::Iterator *it,
-		const std::string &end,
-		uint64_t limit,
-		Direction direction)
+Iterator::Iterator(rocksdb::Iterator *it,
+	const std::string &end,
+	uint64_t limit,
+	Direction direction)
 {
 	this->it = it;
 	this->end = end;
@@ -24,92 +24,95 @@ Iterator::Iterator(leveldb::Iterator *it,
 	this->direction = direction;
 }
 
-Iterator::~Iterator(){
+Iterator::~Iterator() {
 	delete it;
 }
 
-Bytes Iterator::key(){
-	leveldb::Slice s = it->key();
+Bytes Iterator::key() {
+	rocksdb::Slice s = it->key();
 	return Bytes(s.data(), s.size());
 }
 
-Bytes Iterator::val(){
-	leveldb::Slice s = it->value();
+Bytes Iterator::val() {
+	rocksdb::Slice s = it->value();
 	return Bytes(s.data(), s.size());
 }
 
-bool Iterator::skip(uint64_t offset){
-	while(offset-- > 0){
-		if(this->next() == false){
+bool Iterator::skip(uint64_t offset) {
+	while (offset-- > 0) {
+		if (this->next() == false) {
 			return false;
 		}
 	}
 	return true;
 }
 
-bool Iterator::next(){
-	if(limit == 0){
+bool Iterator::next() {
+	if (limit == 0) {
 		return false;
 	}
-	if(is_first){
+	if (is_first) {
 		is_first = false;
-	}else{
-		if(direction == FORWARD){
+	}
+	else {
+		if (direction == FORWARD) {
 			it->Next();
-		}else{
+		}
+		else {
 			it->Prev();
 		}
 	}
 
-	if(!it->Valid()){
+	if (!it->Valid()) {
 		// make next() safe to be called after previous return false.
 		limit = 0;
 		return false;
 	}
-	if(direction == FORWARD){
-		if(!end.empty() && it->key().compare(end) > 0){
-			limit = 0;
-			return false;
-		}
-	}else{
-		if(!end.empty() && it->key().compare(end) < 0){
+	if (direction == FORWARD) {
+		if (!end.empty() && it->key().compare(end) > 0) {
 			limit = 0;
 			return false;
 		}
 	}
-	limit --;
+	else {
+		if (!end.empty() && it->key().compare(end) < 0) {
+			limit = 0;
+			return false;
+		}
+	}
+	limit--;
 	return true;
 }
 
 
 /* KV */
 
-KIterator::KIterator(Iterator *it){
+KIterator::KIterator(Iterator *it) {
 	this->it = it;
 	this->return_val_ = true;
 }
 
-KIterator::~KIterator(){
+KIterator::~KIterator() {
 	delete it;
 }
 
-void KIterator::return_val(bool onoff){
+void KIterator::return_val(bool onoff) {
 	this->return_val_ = onoff;
 }
 
-bool KIterator::next(){
-	while(it->next()){
+bool KIterator::next() {
+	while (it->next()) {
 		Bytes ks = it->key();
 		Bytes vs = it->val();
 		//dump(ks.data(), ks.size(), "z.next");
 		//dump(vs.data(), vs.size(), "z.next");
-		if(ks.data()[0] != DataType::KV){
+		if (ks.data()[0] != DataType::KV) {
 			return false;
 		}
-		if(decode_kv_key(ks, &this->key) == -1){
+		if (decode_kv_key(ks, &this->key) == -1) {
 			continue;
 		}
-		if(return_val_){
+		if (return_val_) {
 			this->val.assign(vs.data(), vs.size());
 		}
 		return true;
@@ -119,74 +122,87 @@ bool KIterator::next(){
 
 /* HASH */
 
-HIterator::HIterator(Iterator *it, const Bytes &name){
+HIterator::HIterator(Iterator *it, const Bytes &name) {
 	this->it = it;
 	this->name.assign(name.data(), name.size());
 	this->return_val_ = true;
+	this->valid = false;
+	this->index = -1;
+	this->values.clear();
 }
 
-HIterator::~HIterator(){
+HIterator::~HIterator() {
 	delete it;
 }
 
-void HIterator::return_val(bool onoff){
+void HIterator::return_val(bool onoff) {
 	this->return_val_ = onoff;
 }
 
-bool HIterator::next(){
-	while(it->next()){
-		Bytes ks = it->key();
-		Bytes vs = it->val();
-		//dump(ks.data(), ks.size(), "z.next");
-		//dump(vs.data(), vs.size(), "z.next");
-		if(ks.data()[0] != DataType::HASH){
-			return false;
+bool HIterator::next() {
+	if (index == -1) {
+		index = 0;
+		if (it->next()) {
+			Bytes ks = it->key();
+			std::string n;
+			if (ks.data()[0] != DataType::HASH ||
+				decode_hash_name(ks, &n) == -1 ||
+				n != this->name) {
+				valid = false;
+				return valid;
+			}
+
+			if (return_val_) {
+				Bytes vs = it->val();
+				if (get_hash_values(Bytes(vs), values) == -1) {
+					valid = false;
+					return valid;
+				}
+			}
+			valid = true;
 		}
-		std::string n;
-		if(decode_hash_key(ks, &n, &key) == -1){
-			continue;
-		}
-		if(n != this->name){
-			return false;
-		}
-		if(return_val_){
-			this->val.assign(vs.data(), vs.size());
-		}
+	}
+	if (index >= values.size() || !valid) {
+		return false;
+	}
+	else {
+		key = values[index].first;
+		val = values[index].second;
+		index++;
 		return true;
 	}
-	return false;
 }
 
 /* ZSET */
 
-ZIterator::ZIterator(Iterator *it, const Bytes &name){
+ZIterator::ZIterator(Iterator *it, const Bytes &name) {
 	this->it = it;
 	this->name.assign(name.data(), name.size());
 }
 
-ZIterator::~ZIterator(){
+ZIterator::~ZIterator() {
 	delete it;
 }
-		
-bool ZIterator::skip(uint64_t offset){
-	while(offset-- > 0){
-		if(this->next() == false){
+
+bool ZIterator::skip(uint64_t offset) {
+	while (offset-- > 0) {
+		if (this->next() == false) {
 			return false;
 		}
 	}
 	return true;
 }
 
-bool ZIterator::next(){
-	while(it->next()){
+bool ZIterator::next() {
+	while (it->next()) {
 		Bytes ks = it->key();
 		//Bytes vs = it->val();
 		//dump(ks.data(), ks.size(), "z.next");
 		//dump(vs.data(), vs.size(), "z.next");
-		if(ks.data()[0] != DataType::ZSCORE){
+		if (ks.data()[0] != DataType::ZSCORE) {
 			return false;
 		}
-		if(decode_zscore_key(ks, NULL, &key, &score) == -1){
+		if (decode_zscore_key(ks, NULL, &key, &score) == -1) {
 			continue;
 		}
 		return true;

@@ -45,6 +45,7 @@ public:
 	virtual Status multi_set(const std::map<std::string, std::string> &kvs);
 	virtual Status multi_del(const std::vector<std::string> &keys);
 	
+	virtual Status migrate_hset(const std::vector<std::string> &items);
 	virtual Status hget(const std::string &name, const std::string &key, std::string *val);
 	virtual Status hset(const std::string &name, const std::string &key, const std::string &val);
 	virtual Status hdel(const std::string &name, const std::string &key);

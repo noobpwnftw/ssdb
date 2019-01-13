@@ -10,10 +10,16 @@ found in the LICENSE file.
 #include <string>
 #include <vector>
 
-#include "leveldb/db.h"
-#include "leveldb/options.h"
-#include "leveldb/slice.h"
-#include "leveldb/iterator.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/table.h"
+#include "ssdb/chess_merge.h"
+#include "ssdb/chess_filter.h"
+#include <table/terark_zip_table.h>
 
 #include "include.h"
 #include "ssdb/const.h"
@@ -22,7 +28,7 @@ found in the LICENSE file.
 #include "util/file.h"
 #include "util/string_util.h"
 
-struct Config {
+struct DumpConfig {
 	std::string ip;
 	int port;
 	bool hasauth;
@@ -76,7 +82,7 @@ void usage(int argc, char **argv){
 	exit(1);   
 }
 
-int parse_options(Config *config, int argc, char **argv){
+int parse_options(DumpConfig *config, int argc, char **argv){
 	int i;
 	for(i = 1; i < argc; i++) {
 		bool lastarg = i==argc-1;
@@ -110,7 +116,7 @@ int main(int argc, char **argv){
 	welcome();
 	set_log_level(Logger::LEVEL_MIN);
 
-	Config config;
+	DumpConfig config;
 	config.ip = "127.0.0.1";
 	config.port = 8888;
 	config.hasauth = false;
@@ -171,17 +177,25 @@ int main(int argc, char **argv){
 	link->send("dump", "A", "", "-1");
 	link->flush();
 
-	leveldb::DB* db;
-	leveldb::Options options;
-	leveldb::Status status;
+	rocksdb::DB* db;
+	rocksdb::Options options;
+	rocksdb::Status status;
 	options.create_if_missing = true;
-	options.write_buffer_size = 32 * 1024 * 1024;
-	options.max_file_size = 32 * 1048576; // leveldb 1.20
-	options.compression = leveldb::kSnappyCompression;
+	options.IncreaseParallelism();
+	options.OptimizeUniversalStyleCompaction(256 * 1024 * 1024 * 4);
+	options.target_file_size_base = 1024 * 1024 * 512;
+	options.merge_operator.reset(new ChessMergeOperator());
+	options.compaction_filter = new ChessCompactionFilter();
+	options.compression = rocksdb::kLZ4Compression;
+	options.compression_opts.max_dict_bytes = 1024 * 64;
+	options.compression_opts.zstd_max_train_bytes = 1024 * 256;
+	options.bottommost_compression = rocksdb::kZSTD;
+	options.memtable_factory.reset(rocksdb::NewPatriciaTrieRepFactory());
+	options.stats_dump_period_sec = 0;
 
-	status = leveldb::DB::Open(options, data_dir.c_str(), &db);
+	status = rocksdb::DB::Open(options, data_dir.c_str(), &db);
 	if(!status.ok()){
-		fprintf(stderr, "ERROR: open leveldb: %s error!\n", config.output_folder.c_str());
+		fprintf(stderr, "ERROR: open rocksdb: %s error!\n", config.output_folder.c_str());
 		exit(1);
 	}
 
@@ -224,12 +238,12 @@ int main(int argc, char **argv){
 					continue;
 				}
 				
-				leveldb::Slice k(key.data(), key.size());
-				leveldb::Slice v(val.data(), val.size());
-				status = db->Put(leveldb::WriteOptions(), k, v);
+				rocksdb::Slice k(key.data(), key.size());
+				rocksdb::Slice v(val.data(), val.size());
+				status = db->Put(rocksdb::WriteOptions(), k, v);
 				//printf("set %s %s\n", str_escape(key.data(), key.size()).c_str(), str_escape(val.data(), val.size()).c_str());
 				if(!status.ok()){
-					fprintf(stderr, "put leveldb error!\n");
+					fprintf(stderr, "put rocksdb error!\n");
 					fprintf(stderr, "ERROR: failed to dump data!\n");
 					exit(1);
 				}
@@ -249,17 +263,17 @@ int main(int argc, char **argv){
 
 	{
 		std::string val;
-		if(db->GetProperty("leveldb.stats", &val)){
+		if(db->GetProperty("rocksdb.stats", &val)){
 			printf("%s\n", val.c_str());
 		}
 	}
 
 	printf("compacting data...\n");
-	db->CompactRange(NULL, NULL);
+	db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
 	
 	{
 		std::string val;
-		if(db->GetProperty("leveldb.stats", &val)){
+		if(db->GetProperty("rocksdb.stats", &val)){
 			printf("%s\n", val.c_str());
 		}
 	}

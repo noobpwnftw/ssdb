@@ -198,7 +198,7 @@ int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp
 		resp->push_back(val);
 	}
 
-	if(req.size() == 1 || req[1] == "leveldb"){
+	if(req.size() == 1 || req[1] == "rocksdb"){
 		std::vector<std::string> tmp = serv->ssdb->info();
 		for(int i=0; i<(int)tmp.size(); i++){
 			std::string block = tmp[i];

@@ -135,6 +135,7 @@ public:
 
 	/// @name Map(Hash) methods
 	/// @{
+	virtual Status migrate_hset(const std::vector<std::string> &items) = 0;
 	virtual Status hget(const std::string &name, const std::string &key, std::string *val) = 0;
 	virtual Status hset(const std::string &name, const std::string &key, const std::string &val) = 0;
 	virtual Status hdel(const std::string &name, const std::string &key) = 0;

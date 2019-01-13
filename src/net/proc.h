@@ -15,7 +15,7 @@ class NetworkServer;
 
 #define PROC_OK			0
 #define PROC_ERROR		-1
-#define PROC_THREAD     1
+#define PROC_THREAD		1
 #define PROC_BACKEND	100
 
 #define DEF_PROC(f) int proc_##f(NetworkServer *net, Link *link, const Request &req, Response *resp)
@@ -28,6 +28,7 @@ struct Command{
 	static const int FLAG_WRITE		= (1 << 1);
 	static const int FLAG_BACKEND	= (1 << 2);
 	static const int FLAG_THREAD	= (1 << 3);
+	static const int FLAG_BLOCK		= (1 << 4);
 
 	std::string name;
 	int flags;
@@ -65,6 +66,7 @@ struct ProcJob{
 		stime = 0;
 		time_wait = 0;
 		time_proc = 0;
+		req = NULL;
 	}
 	~ProcJob(){
 	}

@@ -8,6 +8,9 @@ found in the LICENSE file.
 #include "proc.h"
 #include "../util/log.h"
 #include "../include.h"
+#include <shared_mutex>
+
+static std::shared_mutex g_proc_mutex;
 
 ProcWorker::ProcWorker(const std::string &name){
 	this->name = name;
@@ -21,10 +24,23 @@ int ProcWorker::proc(ProcJob *job){
 	const Request *req = job->req;
 	
 	proc_t p = job->cmd->proc;
+	if(job->cmd->flags & Command::FLAG_WRITE) {
+		if(job->cmd->flags & Command::FLAG_BLOCK) {
+			g_proc_mutex.lock();
+		} else {
+			g_proc_mutex.lock_shared();
+		}
+	}
 	job->time_wait = 1000 * (microtime() - job->stime);
 	job->result = (*p)(job->serv, job->link, *req, &job->resp);
 	job->time_proc = 1000 * (microtime() - job->stime) - job->time_wait;
-
+	if(job->cmd->flags & Command::FLAG_WRITE) {
+		if(job->cmd->flags & Command::FLAG_BLOCK) {
+			g_proc_mutex.unlock();
+		} else {
+			g_proc_mutex.unlock_shared();
+		}
+	}
 	if(job->link->send(job->resp.resp) == -1){
 		job->result = PROC_ERROR;
 	}else{

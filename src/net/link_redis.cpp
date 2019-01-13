@@ -47,6 +47,7 @@ struct RedisCommand_raw
 static RedisCommand_raw cmds_raw[] = {
 	{STRATEGY_AUTO, "auth",		"auth",			REPLY_STATUS},
 	{STRATEGY_PING, "ping",		"ping",			REPLY_STATUS},
+	{STRATEGY_AUTO, "dbsize",	"dbsize",		REPLY_INT},
 
 	{STRATEGY_AUTO, "get",		"get",			REPLY_BULK},
 	{STRATEGY_AUTO, "getset",	"getset",		REPLY_BULK},
@@ -111,7 +112,7 @@ static RedisCommand_raw cmds_raw[] = {
 	{STRATEGY_AUTO, 	"llen",			"qsize",			REPLY_INT},
 	{STRATEGY_AUTO, 	"lsize",		"qsize",			REPLY_INT},
 	{STRATEGY_AUTO,		"lindex",		"qget", 			REPLY_BULK},
-	{STRATEGY_AUTO,		"lset",		    "qset", 			REPLY_STATUS},
+	{STRATEGY_AUTO,		"lset",			"qset", 			REPLY_STATUS},
 	{STRATEGY_AUTO,		"lrange",		"qslice",			REPLY_MULTI_BULK},
 
 	{STRATEGY_AUTO, 	NULL,			NULL,			0}

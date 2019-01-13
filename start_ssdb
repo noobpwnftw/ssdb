@@ -1,0 +1,18 @@
+BASE_DIR=`pwd`
+env \
+    TerarkZipTable_localTempDir=$BASE_DIR/terark-temp \
+    TerarkUseDivSufSort=1 \
+    TerarkZipTable_write_buffer_size=1G \
+    TerarkZipTable_indexNestLevel=4 \
+    TerarkZipTable_checksumLevel=0 \
+    TerarkZipTable_indexCacheRatio=0.001 \
+    TerarkZipTable_sampleRatio=0.0001 \
+    TerarkZipTable_smallTaskMemory=1G \
+    TerarkZipTable_softZipWorkingMemLimit=4G \
+    TerarkZipTable_hardZipWorkingMemLimit=8G \
+    TerarkZipTable_offsetArrayBlockUnits=128 \
+    TerarkZipTable_max_background_flushes=2 \
+    TerarkZipTable_base_background_compactions=2 \
+    TerarkZipTable_max_background_compactions=2 \
+    TerarkZipTable_blackListColumnFamily=oplogCF \
+    ./ssdb-server -d ssdb.conf

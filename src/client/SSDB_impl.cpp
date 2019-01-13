@@ -281,6 +281,13 @@ Status ClientImpl::multi_del(const std::vector<std::string> &keys){
 
 /******************** hash *************************/
 
+Status ClientImpl::migrate_hset(const std::vector<std::string> &items) {
+	const std::vector<std::string> *resp;
+	std::vector<std::string> list(items.begin(), items.end());
+	resp = this->request("migrate_hset", list);
+	Status s(resp);
+	return s;
+}
 
 Status ClientImpl::hget(const std::string &name, const std::string &key, std::string *val){
 	const std::vector<std::string> *resp;
