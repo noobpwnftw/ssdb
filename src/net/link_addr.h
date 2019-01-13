@@ -10,33 +10,35 @@ found in the LICENSE file.
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/un.h>
 
 struct LinkAddr
 {
 	bool ipv4;
 	short family;
 	socklen_t addrlen;
-	
-	LinkAddr(bool is_ipv4);
-	LinkAddr(const char *ip, int port);
-	void parse(const char *ip, int port);
-	
+
+	LinkAddr(short in_family, bool is_ipv4);
+	LinkAddr(short in_family, const char *ip, int port);
+
 	unsigned short port(){
-		return ipv4? ntohs(addr4.sin_port) : ntohs(addr6.sin6_port);
+		return (family != AF_UNIX) ? (ipv4 ? ntohs(addr4.sin_port) : ntohs(addr6.sin6_port)) : 0;
 	}
 	struct sockaddr* addr(){
-		return ipv4? (struct sockaddr *)&addr4 : (struct sockaddr *)&addr6;
+		return (family != AF_UNIX) ? (ipv4 ? (struct sockaddr *)&addr4 : (struct sockaddr *)&addr6) : (struct sockaddr *)&addr_un;
 	}
 	void* sin_addr(){
-		return ipv4? (void*)&addr4.sin_addr : (void*)&addr6.sin6_addr;
+		return (family != AF_UNIX) ? (ipv4 ? (void*)&addr4.sin_addr : (void*)&addr6.sin6_addr) : (void*)&addr_un.sun_path;
 	}
-	
+
 private:
-	struct sockaddr_in addr4;
-	struct sockaddr_in6 addr6;
+	union {
+		struct sockaddr_in addr4;
+		struct sockaddr_in6 addr6;
+		struct sockaddr_un addr_un;
+	};
 
 	LinkAddr(){};
-	void is_ipv4(bool yn);
 };
 
 #endif
