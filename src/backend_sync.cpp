@@ -40,12 +40,11 @@ BackendSync::~BackendSync(){
 
 std::vector<std::string> BackendSync::stats(){
 	std::vector<std::string> ret;
-	std::map<pthread_t, Client *>::iterator it;
+	std::set<Client *>::iterator it;
 
 	Locking l(&mutex);
 	for(it = workers.begin(); it != workers.end(); it++){
-		Client *client = it->second;
-		ret.push_back(client->stats());
+		ret.push_back((*it)->stats());
 	}
 	return ret;
 }
@@ -82,9 +81,8 @@ void* BackendSync::_run_thread(void *arg){
 	client.init();
 
 	{
-		pthread_t tid = pthread_self();
 		Locking l(&backend->mutex);
-		backend->workers[tid] = &client;
+		backend->workers.insert(&client);
 	}
 
 // sleep longer to reduce logs.find
@@ -140,7 +138,7 @@ void* BackendSync::_run_thread(void *arg){
 	delete link;
 
 	Locking l(&backend->mutex);
-	backend->workers.erase(pthread_self());
+	backend->workers.erase(&client);
 	return (void *)NULL;
 }
 

@@ -9,6 +9,8 @@ found in the LICENSE file.
 #include "../util/log.h"
 #include "../include.h"
 
+static tbb::queuing_rw_mutex g_proc_mutex;
+
 ProcWorker::ProcWorker(const std::string &name){
 	this->name = name;
 }
@@ -17,14 +19,21 @@ void ProcWorker::init(){
 	log_debug("%s %d init", this->name.c_str(), this->id);
 }
 
-int ProcWorker::proc(ProcJob *job){
+int ProcWorker::proc(ProcJob* job){
 	const Request *req = job->req;
 	
 	proc_t p = job->cmd->proc;
-	job->time_wait = 1000 * (microtime() - job->stime);
+	if(job->cmd->flags & Command::FLAG_WRITE) {
+		if(job->cmd->flags & Command::FLAG_BLOCK) {
+			m_lock.acquire(g_proc_mutex);
+		} else {
+			m_lock.acquire(g_proc_mutex, false);
+		}
+	}
 	job->result = (*p)(job->serv, job->link, *req, &job->resp);
-	job->time_proc = 1000 * (microtime() - job->stime) - job->time_wait;
-
+	if(job->cmd->flags & Command::FLAG_WRITE) {
+		m_lock.release();
+	}
 	if(job->link->send(job->resp.resp) == -1){
 		job->result = PROC_ERROR;
 	}else{

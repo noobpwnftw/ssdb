@@ -21,7 +21,6 @@ found in the LICENSE file.
 
 Link::Link(bool is_server){
 	redis = NULL;
-
 	sock = -1;
 	noblock_ = false;
 	error_ = false;
@@ -350,7 +349,7 @@ const std::vector<Bytes>* Link::recv(){
 			// packet end
 			parsed += head_len;
 			input->decr(parsed);
-			return &this->recv_data;;
+			return &this->recv_data;
 		}
 		if(head[0] < '0' || head[0] > '9'){
 			//log_warn("bad format");

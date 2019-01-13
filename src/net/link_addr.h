@@ -16,11 +16,10 @@ struct LinkAddr
 	bool ipv4;
 	short family;
 	socklen_t addrlen;
-	
+
 	LinkAddr(bool is_ipv4);
 	LinkAddr(const char *ip, int port);
-	void parse(const char *ip, int port);
-	
+
 	unsigned short port(){
 		return ipv4? ntohs(addr4.sin_port) : ntohs(addr6.sin6_port);
 	}
@@ -30,13 +29,12 @@ struct LinkAddr
 	void* sin_addr(){
 		return ipv4? (void*)&addr4.sin_addr : (void*)&addr6.sin6_addr;
 	}
-	
+
 private:
 	struct sockaddr_in addr4;
 	struct sockaddr_in6 addr6;
 
 	LinkAddr(){};
-	void is_ipv4(bool yn);
 };
 
 #endif

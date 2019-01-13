@@ -18,6 +18,7 @@ found in the LICENSE file.
 #define FDEVENT_OUT		(1<<2)
 #define FDEVENT_HUP		(1<<3)
 #define FDEVENT_ERR		(1<<4)
+#define FDEVENT_EXCL	(1<<5)
 
 struct Fdevent{
 	int fd;

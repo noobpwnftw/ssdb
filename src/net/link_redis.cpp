@@ -4,7 +4,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 */
 #include "link_redis.h"
-#include <map>
+#include <unordered_map>
 
 enum REPLY{
 	REPLY_BULK = 0,
@@ -34,7 +34,7 @@ enum STRATEGY{
 };
 
 static bool inited = false;
-static std::map<std::string, RedisRequestDesc> cmd_table;
+static std::unordered_map<std::string, RedisRequestDesc> cmd_table;
 
 struct RedisCommand_raw
 {
@@ -47,6 +47,7 @@ struct RedisCommand_raw
 static RedisCommand_raw cmds_raw[] = {
 	{STRATEGY_AUTO, "auth",		"auth",			REPLY_STATUS},
 	{STRATEGY_PING, "ping",		"ping",			REPLY_STATUS},
+	{STRATEGY_AUTO, "dbsize",	"dbsize",		REPLY_INT},
 
 	{STRATEGY_AUTO, "get",		"get",			REPLY_BULK},
 	{STRATEGY_AUTO, "getset",	"getset",		REPLY_BULK},
@@ -111,7 +112,7 @@ static RedisCommand_raw cmds_raw[] = {
 	{STRATEGY_AUTO, 	"llen",			"qsize",			REPLY_INT},
 	{STRATEGY_AUTO, 	"lsize",		"qsize",			REPLY_INT},
 	{STRATEGY_AUTO,		"lindex",		"qget", 			REPLY_BULK},
-	{STRATEGY_AUTO,		"lset",		    "qset", 			REPLY_STATUS},
+	{STRATEGY_AUTO,		"lset",			"qset", 			REPLY_STATUS},
 	{STRATEGY_AUTO,		"lrange",		"qslice",			REPLY_MULTI_BULK},
 
 	{STRATEGY_AUTO, 	NULL,			NULL,			0}
@@ -135,7 +136,7 @@ int RedisLink::convert_req(){
 	
 	this->req_desc = NULL;
 	
-	std::map<std::string, RedisRequestDesc>::iterator it;
+	std::unordered_map<std::string, RedisRequestDesc>::iterator it;
 	it = cmd_table.find(cmd);
 	if(it == cmd_table.end()){
 		recv_string.push_back(cmd);

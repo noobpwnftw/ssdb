@@ -23,7 +23,7 @@ function show_version(link){
 function dbsize(link){
 	resp = link.request('info', []);
 	foreach(resp.data as k=>v){
-		if(v != 'leveldb.stats'){
+		if(v != 'rocksdb.stats'){
 			continue;
 		}
 		s = resp.data[k + 1];

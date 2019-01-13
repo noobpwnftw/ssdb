@@ -7,7 +7,6 @@ found in the LICENSE file.
 #define SSDB_SERVER_H_
 
 #include "include.h"
-#include <map>
 #include <vector>
 #include <string>
 #include "ssdb/ssdb_impl.h"
