@@ -85,12 +85,7 @@ std::string Slave::stats() const{
 }
 
 void Slave::start(){
-	migrate_old_status();
-	if(last_seq != 0 || !last_key.empty()){
-		save_status();
-	}else{
-		load_status();
-	}
+	load_status();
 	log_debug("last_seq: %" PRIu64 ", last_key: %s",
 		last_seq, hexmem(last_key.data(), last_key.size()).c_str());
 
@@ -105,37 +100,13 @@ void Slave::stop(){
 	thread_quit = true;
 	void *tret;
 	int err = pthread_join(run_thread_tid, &tret);
-    if(err != 0){
+	if(err != 0){
 		log_error("can't join thread: %s", strerror(err));
 	}
 }
 
 void Slave::set_id(const std::string &id){
 	this->id_ = id;
-}
-
-void Slave::migrate_old_status(){
-	std::string old_key = "new.slave.status|" + this->id_;
-	std::string val;
-	int old_found = meta->raw_get(old_key, &val);
-	if(!old_found){
-		return;
-	}
-	if(val.size() < sizeof(uint64_t)){
-		log_error("invalid format of status");
-		return;
-	}
-	last_seq = *((uint64_t *)(val.data()));
-	last_key.assign(val.data() + sizeof(uint64_t), val.size() - sizeof(uint64_t));
-	// migrate old status
-	log_info("migrate old version slave status to new format, last_seq: %" PRIu64 ", last_key: %s",
-		last_seq, hexmem(last_key.data(), last_key.size()).c_str());
-	
-	save_status();
-	if(meta->raw_del(old_key) == -1){
-		log_fatal("meta db error!");
-		exit(1);
-	}
 }
 
 std::string Slave::status_key(){
@@ -147,8 +118,8 @@ std::string Slave::status_key(){
 void Slave::load_status(){
 	std::string key;
 	std::string seq;
-	meta->hget(status_key(), "last_key", &key);
-	meta->hget(status_key(), "last_seq", &seq);
+	meta->get(status_key() + ".last_key", &key);
+	meta->get(status_key() + ".last_seq", &seq);
 	if(!key.empty()){
 		this->last_key = key;
 	}
@@ -159,8 +130,8 @@ void Slave::load_status(){
 
 void Slave::save_status(){
 	std::string seq = str(this->last_seq);
-	meta->hset(status_key(), "last_key", this->last_key);
-	meta->hset(status_key(), "last_seq", seq);
+	meta->set(status_key() + ".last_key", this->last_key);
+	meta->set(status_key() + ".last_seq", seq);
 }
 
 int Slave::connect(){
@@ -282,7 +253,7 @@ void* Slave::_run_thread(void *arg){
 err:
 	log_fatal("Slave thread exit unexpectedly");
 	exit(0);
-	return (void *)NULL;;
+	return (void *)NULL;
 }
 
 int Slave::proc(const std::vector<Bytes> &req){
@@ -406,28 +377,14 @@ int Slave::proc_sync(const Binlog &log, const std::vector<Bytes> &req){
 				if(req.size() != 2){
 					break;
 				}
-				std::string name, key;
-				if(decode_hash_key(log.key(), &name, &key) == -1){
-					break;
-				}
-				log_trace("hset %s %s",
-					hexmem(name.data(), name.size()).c_str(),
-					hexmem(key.data(), key.size()).c_str());
-				if(ssdb->hset(name, key, req[1], log_type) == -1){
+				if(ssdb->sync_hset(log.key(), req[1], log_type) == -1){
 					return -1;
 				}
 			}
 			break;
 		case BinlogCommand::HDEL:
 			{
-				std::string name, key;
-				if(decode_hash_key(log.key(), &name, &key) == -1){
-					break;
-				}
-				log_trace("hdel %s %s",
-					hexmem(name.data(), name.size()).c_str(),
-					hexmem(key.data(), key.size()).c_str());
-				if(ssdb->hdel(name, key, log_type) == -1){
+				if(ssdb->sync_hdel(log.key(), log_type) == -1){
 					return -1;
 				}
 			}
