@@ -160,14 +160,15 @@ void Logger::rotate(){
 	gettimeofday(&tv, NULL);
 	time = tv.tv_sec;
 	tm = localtime_r(&time, &tm_tmp);
-	sprintf(newpath, "%s.%04d%02d%02d-%02d%02d%02d",
+	int ret = snprintf(newpath, PATH_MAX, "%s.%04d%02d%02d-%02d%02d%02d",
 		this->filename,
 		tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 		tm->tm_hour, tm->tm_min, tm->tm_sec);
-
-	//printf("rename %s => %s\n", this->filename, newpath);
-	int ret = rename(this->filename, newpath);
-	if(ret == -1){
+	if(ret < 0){
+		return;
+	}
+	ret = rename(this->filename, newpath);
+	if(ret != 0){
 		return;
 	}
 	this->fd = ::open(filename, O_CREAT | O_WRONLY | O_APPEND, 0644);

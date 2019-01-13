@@ -106,7 +106,7 @@ class SelectableQueue{
 		// multi writer
 		int push(const T item);
 		// single reader
-		int pop(T *data);
+		int pop(std::vector<T> *data);
 };
 
 template<class W, class JOB>
@@ -151,7 +151,7 @@ class WorkerPool{
 		int stop();
 		
 		int push(JOB job);
-		int pop(JOB *job);
+		int pop(std::vector<JOB> *job);
 };
 
 
@@ -197,9 +197,7 @@ int Queue<T>::push(const T item){
 	if(pthread_mutex_lock(&mutex) != 0){
 		return -1;
 	}
-	{
-		items.push(item);
-	}
+	items.push(item);
 	pthread_mutex_unlock(&mutex);
 	pthread_cond_signal(&cond);
 	return 1;
@@ -254,12 +252,21 @@ int SelectableQueue<T>::push(const T item){
 	if(pthread_mutex_lock(&mutex) != 0){
 		return -1;
 	}
-	{
-		items.push(item);
-	}
-	if(::write(fds[1], "1", 1) == -1){
-		fprintf(stderr, "write fds error\n");
-		exit(0);
+	items.push(item);
+	while(1){
+		int n = ::write(fds[1], "1", 1);
+		if(n < 0){
+			if(errno == EINTR){
+				continue;
+			}else{
+				pthread_mutex_unlock(&mutex);
+				return -1;
+			}
+		}else if(n == 0){
+			pthread_mutex_unlock(&mutex);
+			return -1;
+		}
+		break;
 	}
 	pthread_mutex_unlock(&mutex);
 	return 1;
@@ -275,38 +282,32 @@ int SelectableQueue<T>::size(){
 }
 
 template <class T>
-int SelectableQueue<T>::pop(T *data){
-	int n, ret = 1;
+int SelectableQueue<T>::pop(std::vector<T> *data){
 	char buf[1];
-
-	while(1){
-		n = ::read(fds[0], buf, 1);
-		if(n < 0){
-			if(errno == EINTR){
-				continue;
-			}else{
-				return -1;
-			}
-		}else if(n == 0){
-			ret = -1;
-		}else{
-			if(pthread_mutex_lock(&mutex) != 0){
-				return -1;
-			}
-			{
-				if(items.empty()){
-					fprintf(stderr, "%s %d error!\n", __FILE__, __LINE__);
+	if(pthread_mutex_lock(&mutex) != 0){
+		return -1;
+	}
+	while(!items.empty()){
+		data->push_back(items.front());
+		items.pop();
+		while(1){
+			int n = ::read(fds[0], buf, 1);
+			if(n < 0){
+				if(errno == EINTR){
+					continue;
+				}else{
 					pthread_mutex_unlock(&mutex);
 					return -1;
 				}
-				*data = items.front();
-				items.pop();
+			}else if(n == 0){
+				pthread_mutex_unlock(&mutex);
+				return -1;
 			}
-			pthread_mutex_unlock(&mutex);
+			break;
 		}
-		break;
 	}
-	return ret;
+	pthread_mutex_unlock(&mutex);
+	return 1;
 }
 
 
@@ -330,7 +331,7 @@ int WorkerPool<W, JOB>::push(JOB job){
 }
 
 template<class W, class JOB>
-int WorkerPool<W, JOB>::pop(JOB *job){
+int WorkerPool<W, JOB>::pop(std::vector<JOB> *job){
 	return this->results.pop(job);
 }
 
@@ -402,65 +403,10 @@ int WorkerPool<W, JOB>::stop(){
 	}
 	// wait
 	for(int i=0; i<tids.size(); i++){
-#ifdef OS_ANDROID
-		// TODO:
-#else
-		void *ret;
-		pthread_join(tids[i], &ret);
-#endif
+		pthread_join(tids[i], NULL);
 	}
 	return 0;
 }
 
-
-
-#if 0
-// g++ log.o a.cpp
-
-class MyWorker : public WorkerPool<MyWorker, int*>::Worker{
-public:
-	MyWorker(const std::string &name){
-	}
-	
-	int proc(int *job){
-		usleep(200 * 1000);
-		*job = 100000 + *job;
-		return 0;
-	}
-};
-
-#define NUM_JOBS 10
-
-int main(){
-	int jobs[NUM_JOBS];
-	WorkerPool<MyWorker, int*> tp("test");
-	tp.start(3);
-	
-	log_debug("add begin");
-	for(int i=0; i<NUM_JOBS; i++){
-		//usleep(200 * 1000);
-		log_debug("    add job: %d", i);
-		jobs[i] = i;
-		tp.push(&jobs[i]);
-	}
-	log_debug("add end");
-	
-	log_debug("pop begin");
-	for(int i=0; i<NUM_JOBS-1; i++){
-		int *job;
-		tp.pop(&job);
-		log_debug("    result: %d, %d", i, *job);
-	}
-	log_debug("pop end");
-	
-	log_debug("stopping...");
-	tp.stop();
-	log_debug("stopped");
-
-	return 0;
-}
 #endif
-
-#endif
-
 

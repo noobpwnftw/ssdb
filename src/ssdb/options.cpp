@@ -18,12 +18,10 @@ Options::Options(){
 }
 
 void Options::load(const Config &conf){
-	cache_size = (size_t)conf.get_num("leveldb.cache_size");
-	max_open_files = (size_t)conf.get_num("leveldb.max_open_files");
-	write_buffer_size = (size_t)conf.get_num("leveldb.write_buffer_size");
-	block_size = (size_t)conf.get_num("leveldb.block_size");
-	compaction_speed = conf.get_num("leveldb.compaction_speed");
-	compression = conf.get_str("leveldb.compression");
+	max_open_files = (size_t)conf.get_num("rocksdb.max_open_files");
+	write_buffer_size = (size_t)conf.get_num("rocksdb.write_buffer_size");
+	sst_size = (size_t)conf.get_num("rocksdb.sst_size");
+	compression = conf.get_str("rocksdb.compression");
 	std::string binlog = conf.get_str("replication.binlog");
 	binlog_capacity = (size_t)conf.get_num("replication.binlog.capacity");
 
@@ -41,22 +39,13 @@ void Options::load(const Config &conf){
 		binlog_capacity = LOG_QUEUE_SIZE;
 	}
 
-	if(cache_size <= 0){
-		cache_size = 16;
-	}
 	if(write_buffer_size <= 0){
-		write_buffer_size = 16;
+		write_buffer_size = 1024;
 	}
-	if(block_size <= 0){
-		block_size = 32;
+	if(sst_size <= 0){
+		sst_size = 512;
 	}
-	if(max_open_files <= 0){
-		max_open_files = cache_size / 1024 * 300;
-		if(max_open_files < 500){
-			max_open_files = 500;
-		}
-		if(max_open_files > 1000){
-			max_open_files = 1000;
-		}
+	if(max_open_files <= 0 || max_open_files > 1000){
+		max_open_files = -1;
 	}
 }

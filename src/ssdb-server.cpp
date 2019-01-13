@@ -10,6 +10,8 @@ found in the LICENSE file.
 #include "util/app.h"
 #include "serv.h"
 
+#define SERVE_THREADS 8
+
 #define APP_NAME "ssdb-server"
 #define APP_VERSION SSDB_VERSION
 
@@ -51,11 +53,9 @@ void MyApplication::run(){
 
 	log_info("main_db          : %s", data_db_dir.c_str());
 	log_info("meta_db          : %s", meta_db_dir.c_str());
-	log_info("cache_size       : %d MB", option.cache_size);
-	log_info("block_size       : %d KB", option.block_size);
+	log_info("sst_size         : %d MB", option.sst_size);
 	log_info("write_buffer     : %d MB", option.write_buffer_size);
 	log_info("max_open_files   : %d", option.max_open_files);
-	log_info("compaction_speed : %d MB/s", option.compaction_speed);
 	log_info("compression      : %s", option.compression.c_str());
 	log_info("binlog           : %s", option.binlog? "yes" : "no");
 	log_info("binlog_capacity  : %d", option.binlog_capacity);
@@ -84,8 +84,16 @@ void MyApplication::run(){
 	
 	log_info("pidfile: %s, pid: %d", app_args.pidfile.c_str(), (int)getpid());
 	log_info("ssdb server started.");
-	net->serve();
-	
+
+    pthread_t tids[SERVE_THREADS];
+    for (int i = 0; i < SERVE_THREADS; i++) {
+        pthread_create(&tids[i], NULL, &NetworkServer::serve, (void*)net);
+    }
+
+    for (int i = 0; i < SERVE_THREADS; i++) {
+        pthread_join(tids[i], NULL);
+    }
+
 	delete net;
 	delete server;
 	delete meta_db;

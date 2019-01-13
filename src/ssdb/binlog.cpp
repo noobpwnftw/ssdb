@@ -8,11 +8,13 @@ found in the LICENSE file.
 #include "../include.h"
 #include "../util/log.h"
 #include "../util/string_util.h"
-#include <map>
+#include <unordered_map>
+
+static __thread TERARKDB_NAMESPACE::WriteBatch* tls_batch;
 
 /* Binlog */
 
-Binlog::Binlog(uint64_t seq, char type, char cmd, const leveldb::Slice &key){
+Binlog::Binlog(uint64_t seq, char type, char cmd, const TERARKDB_NAMESPACE::Slice &key){
 	buf.append((char *)(&seq), sizeof(uint64_t));
 	buf.push_back(type);
 	buf.push_back(cmd);
@@ -43,7 +45,7 @@ int Binlog::load(const Bytes &s){
 	return 0;
 }
 
-int Binlog::load(const leveldb::Slice &s){
+int Binlog::load(const TERARKDB_NAMESPACE::Slice &s){
 	if(s.size() < HEADER_LEN){
 		return -1;
 	}
@@ -147,7 +149,7 @@ static inline std::string encode_seq_key(uint64_t seq){
 	return ret;
 }
 
-static inline uint64_t decode_seq_key(const leveldb::Slice &key){
+static inline uint64_t decode_seq_key(const TERARKDB_NAMESPACE::Slice &key){
 	uint64_t seq = 0;
 	if(key.size() == (sizeof(uint64_t) + 1) && key.data()[0] == DataType::SYNCLOG){
 		seq = *((uint64_t *)(key.data() + 1));
@@ -156,8 +158,9 @@ static inline uint64_t decode_seq_key(const leveldb::Slice &key){
 	return seq;
 }
 
-BinlogQueue::BinlogQueue(leveldb::DB *db, bool enabled, int capacity){
+BinlogQueue::BinlogQueue(TERARKDB_NAMESPACE::DB *db, std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> handles, bool enabled, int capacity){
 	this->db = db;
+	this->cfHandles = handles;
 	this->min_seq_ = 0;
 	this->last_seq = 0;
 	this->tran_seq = 0;
@@ -192,7 +195,7 @@ BinlogQueue::BinlogQueue(leveldb::DB *db, bool enabled, int capacity){
 }
 
 BinlogQueue::~BinlogQueue(){
-	if(this->enabled){
+	if(enabled){
 		thread_quit = true;
 		for(int i=0; i<100; i++){
 			if(thread_quit == false){
@@ -201,8 +204,12 @@ BinlogQueue::~BinlogQueue(){
 			usleep(10 * 1000);
 		}
 	}
-	Locking l(&this->mutex);
+	Locking l(&mutex);
 	db = NULL;
+	while(!vec_batch.empty()){
+		delete vec_batch.back();
+		vec_batch.pop_back();
+	}
 }
 
 std::string BinlogQueue::stats() const{
@@ -214,64 +221,64 @@ std::string BinlogQueue::stats() const{
 }
 
 void BinlogQueue::begin(){
+	if(terark_unlikely(tls_batch == nullptr)){
+		tls_batch = new TERARKDB_NAMESPACE::WriteBatch();
+		Locking l(&mutex);
+		vec_batch.push_back(tls_batch);
+	}
+	if(!enabled){
+		return;
+	}
+	mutex.lock();
 	tran_seq = last_seq;
-	batch.Clear();
 }
 
 void BinlogQueue::rollback(){
+	tls_batch->Clear();
+	if(!enabled){
+		return;
+	}
 	tran_seq = 0;
 }
 
-leveldb::Status BinlogQueue::commit(){
-	leveldb::WriteOptions write_opts;
-	leveldb::Status s = db->Write(write_opts, &batch);
-	if(s.ok()){
+void BinlogQueue::release(){
+	if(enabled){
+		tran_seq = 0;
+		mutex.unlock();
+	}
+	tls_batch->Clear();
+}
+
+TERARKDB_NAMESPACE::Status BinlogQueue::commit(){
+	TERARKDB_NAMESPACE::Status s = db->Write(write_opts, tls_batch);
+	if(enabled && s.ok()){
 		last_seq = tran_seq;
 		tran_seq = 0;
 	}
 	return s;
 }
 
-void BinlogQueue::add_log(char type, char cmd, const leveldb::Slice &key){
+void BinlogQueue::add_log(char type, char cmd, const TERARKDB_NAMESPACE::Slice &key){
 	if(!enabled){
 		return;
 	}
 	tran_seq ++;
 	Binlog log(tran_seq, type, cmd, key);
-	batch.Put(encode_seq_key(tran_seq), log.repr());
+	tls_batch->Put(cfHandles[kOplogCFHandle], encode_seq_key(tran_seq), log.repr());
 }
 
-void BinlogQueue::add_log(char type, char cmd, const std::string &key){
-	if(!enabled){
-		return;
-	}
-	leveldb::Slice s(key);
-	this->add_log(type, cmd, s);
-}
-
-// leveldb put
-void BinlogQueue::Put(const leveldb::Slice& key, const leveldb::Slice& value){
-	batch.Put(key, value);
-}
-
-// leveldb delete
-void BinlogQueue::Delete(const leveldb::Slice& key){
-	batch.Delete(key);
-}
-	
 int BinlogQueue::find_next(uint64_t next_seq, Binlog *log) const{
 	if(this->get(next_seq, log) == 1){
 		return 1;
 	}
 	uint64_t ret = 0;
 	std::string key_str = encode_seq_key(next_seq);
-	leveldb::ReadOptions iterate_options;
-	leveldb::Iterator *it = db->NewIterator(iterate_options);
+	TERARKDB_NAMESPACE::Iterator *it = db->NewIterator(read_opts, cfHandles[kOplogCFHandle]);
 	it->Seek(key_str);
 	if(it->Valid()){
-		leveldb::Slice key = it->key();
+		TERARKDB_NAMESPACE::Slice key = it->key();
 		if(decode_seq_key(key) != 0){
-			leveldb::Slice val = it->value();
+			TERARKDB_NAMESPACE::Slice val = it->value();
 			if(log->load(val) == -1){
 				ret = -1;
 			}else{
@@ -286,13 +293,12 @@ int BinlogQueue::find_next(uint64_t next_seq, Binlog *log) const{
 int BinlogQueue::find_min(Binlog *log) const{
 	int ret = 0;
 	std::string key_str = encode_seq_key(0);
-	leveldb::ReadOptions iterate_options;
-	leveldb::Iterator *it = db->NewIterator(iterate_options);
+	TERARKDB_NAMESPACE::Iterator *it = db->NewIterator(read_opts, cfHandles[kOplogCFHandle]);
 	it->Seek(key_str);
 	if(it->Valid()){
-		leveldb::Slice key = it->key();
+		TERARKDB_NAMESPACE::Slice key = it->key();
 		if(decode_seq_key(key) != 0){
-			leveldb::Slice val = it->value();
+			TERARKDB_NAMESPACE::Slice val = it->value();
 			if(log->load(val) == -1){
 				ret = -1;
 			}else{
@@ -333,8 +339,7 @@ int BinlogQueue::find_last(Binlog *log) const{
 	
 	// int ret = 0;
 	// std::string key_str = encode_seq_key(UINT64_MAX);
-	// leveldb::ReadOptions iterate_options;
-	// leveldb::Iterator *it = db->NewIterator(iterate_options);
+	// TERARKDB_NAMESPACE::Iterator *it = db->NewIterator(read_opts, cfHandles[kOplogCFHandle]);
 	// it->Seek(key_str);
 	// if(!it->Valid()){
 	// 	// Iterator::prev requires Valid, so we seek to last
@@ -344,9 +349,9 @@ int BinlogQueue::find_last(Binlog *log) const{
 	// 	it->Prev();
 	// }
 	// if(it->Valid()){
-	// 	leveldb::Slice key = it->key();
+	// 	TERARKDB_NAMESPACE::Slice key = it->key();
 	// 	if(decode_seq_key(key) != 0){
-	// 		leveldb::Slice val = it->value();
+	// 		TERARKDB_NAMESPACE::Slice val = it->value();
 	// 		if(log->load(val) == -1){
 	// 			ret = -1;
 	// 		}else{
@@ -360,7 +365,7 @@ int BinlogQueue::find_last(Binlog *log) const{
 
 int BinlogQueue::get(uint64_t seq, Binlog *log) const{
 	std::string val;
-	leveldb::Status s = db->Get(leveldb::ReadOptions(), encode_seq_key(seq), &val);
+	TERARKDB_NAMESPACE::Status s = db->Get(read_opts, cfHandles[kOplogCFHandle], encode_seq_key(seq), &val);
 	if(s.ok()){
 		if(log->load(val) != -1){
 			return 1;
@@ -371,7 +376,7 @@ int BinlogQueue::get(uint64_t seq, Binlog *log) const{
 
 int BinlogQueue::update(uint64_t seq, char type, char cmd, const std::string &key){
 	Binlog log(seq, type, cmd, key);
-	leveldb::Status s = db->Put(leveldb::WriteOptions(), encode_seq_key(seq), log.repr());
+	TERARKDB_NAMESPACE::Status s = db->Put(write_opts, cfHandles[kOplogCFHandle], encode_seq_key(seq), log.repr());
 	if(s.ok()){
 		return 0;
 	}
@@ -379,7 +384,7 @@ int BinlogQueue::update(uint64_t seq, char type, char cmd, const std::string &ke
 }
 
 int BinlogQueue::del(uint64_t seq){
-	leveldb::Status s = db->Delete(leveldb::WriteOptions(), encode_seq_key(seq));
+	TERARKDB_NAMESPACE::Status s = db->Delete(write_opts, cfHandles[kOplogCFHandle], encode_seq_key(seq));
 	if(!s.ok()){
 		return -1;
 	}
@@ -387,21 +392,21 @@ int BinlogQueue::del(uint64_t seq){
 }
 
 void BinlogQueue::flush(){
-	del_range(this->min_seq_, this->last_seq);
+	del_range(min_seq_, last_seq);
 }
 
 int BinlogQueue::del_range(uint64_t start, uint64_t end){
 	while(start <= end){
-		leveldb::WriteBatch batch;
+		TERARKDB_NAMESPACE::WriteBatch batch;
 		for(int count = 0; start <= end && count < 1000; start++, count++){
-			batch.Delete(encode_seq_key(start));
+			batch.Delete(cfHandles[kOplogCFHandle], encode_seq_key(start));
 		}
 		
-		Locking l(&this->mutex);
-		if(!this->db){
+		Locking l(&mutex);
+		if(!db){
 			return -1;
 		}
-		leveldb::Status s = this->db->Write(leveldb::WriteOptions(), &batch);
+		TERARKDB_NAMESPACE::Status s = db->Write(write_opts, &batch);
 		if(!s.ok()){
 			return -1;
 		}
@@ -439,16 +444,17 @@ void* BinlogQueue::log_clean_thread_func(void *arg){
 // 因为老版本可能产生了断续的binlog
 // 例如, binlog-1 存在, 但后面的被删除了, 然后到 binlog-100000 时又开始存在.
 void BinlogQueue::clean_obsolete_binlogs(){
-	std::string key_str = encode_seq_key(this->min_seq_);
-	leveldb::ReadOptions iterate_options;
-	leveldb::Iterator *it = db->NewIterator(iterate_options);
+	std::string key_str = encode_seq_key(min_seq_);
+	TERARKDB_NAMESPACE::ReadOptions iterate_options;
+	iterate_options.fill_cache = false;
+	TERARKDB_NAMESPACE::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
 	it->Seek(key_str);
 	if(it->Valid()){
 		it->Prev();
 	}
 	uint64_t count = 0;
 	while(it->Valid()){
-		leveldb::Slice key = it->key();
+		TERARKDB_NAMESPACE::Slice key = it->key();
 		uint64_t seq = decode_seq_key(key);
 		if(seq == 0){
 			break;
@@ -466,7 +472,7 @@ void BinlogQueue::clean_obsolete_binlogs(){
 
 // TESTING, slow, so not used
 void BinlogQueue::merge(){
-	std::map<std::string, uint64_t> key_map;
+	std::unordered_map<std::string, uint64_t> key_map;
 	uint64_t start = min_seq_;
 	uint64_t end = last_seq;
 	int reduce_count = 0;
@@ -481,7 +487,7 @@ void BinlogQueue::merge(){
 				continue;
 			}
 			std::string key = log.key().String();
-			std::map<std::string, uint64_t>::iterator it = key_map.find(key);
+			std::unordered_map<std::string, uint64_t>::iterator it = key_map.find(key);
 			if(it != key_map.end()){
 				uint64_t seq = it->second;
 				this->update(seq, BinlogType::NOOP, BinlogCommand::NONE, "");
@@ -492,4 +498,19 @@ void BinlogQueue::merge(){
 		}
 	}
 	log_trace("merge reduce %d of %d binlogs", reduce_count, total);
+}
+
+// rocksdb put
+void BinlogQueue::Put(const TERARKDB_NAMESPACE::Slice& key, const TERARKDB_NAMESPACE::Slice& value){
+	tls_batch->Put(key, value);
+}
+
+// rocksdb delete
+void BinlogQueue::Delete(const TERARKDB_NAMESPACE::Slice& key){
+	tls_batch->Delete(key);
+}
+
+// rocksdb merge
+void BinlogQueue::Merge(const TERARKDB_NAMESPACE::Slice& key, const TERARKDB_NAMESPACE::Slice& value){
+	tls_batch->Merge(key, value);
 }

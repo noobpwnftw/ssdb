@@ -11,7 +11,7 @@ int SortedSet::size() const{
 
 int SortedSet::add(const std::string &key, int64_t score){
 	int ret;
-	std::map<std::string, std::set<Item>::iterator>::iterator it;
+	std::unordered_map<std::string, std::set<Item>::iterator>::iterator it;
 	
 	it = existed.find(key);
 	if(it == existed.end()){
@@ -41,7 +41,7 @@ int SortedSet::add(const std::string &key, int64_t score){
 
 int SortedSet::del(const std::string &key){
 	int ret;
-	std::map<std::string, std::set<Item>::iterator>::iterator it;
+	std::unordered_map<std::string, std::set<Item>::iterator>::iterator it;
 	
 	it = existed.find(key);
 	if(it == existed.end()){

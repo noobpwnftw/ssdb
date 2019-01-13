@@ -9,6 +9,7 @@ found in the LICENSE file.
 #include <string>
 #include "../util/thread.h"
 #include "proc.h"
+#include <tbb/queuing_rw_mutex.h>
 
 // WARN: pipe latency is about 20 us, it is really slow!
 class ProcWorker : public WorkerPool<ProcWorker, ProcJob *>::Worker{
@@ -17,6 +18,8 @@ public:
 	~ProcWorker(){}
 	void init();
 	int proc(ProcJob *job);
+private:
+	tbb::queuing_rw_mutex::scoped_lock m_lock;
 };
 
 typedef WorkerPool<ProcWorker, ProcJob *> ProcWorkerPool;

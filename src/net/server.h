@@ -25,26 +25,17 @@ typedef std::vector<Link *> ready_list_t;
 class NetworkServer
 {
 private:
-	int tick_interval;
-	int status_report_ticks;
+	Link* accept_link(Link *serv_link);
+	int proc_result(Fdevents *fdes, ProcJob *job, ready_list_t *ready_list);
+	int proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_list_t *ready_list);
 
-	//Config *conf;
-	Link *serv_link;
-	Fdevents *fdes;
-
-	Link* accept_link();
-	int proc_result(ProcJob *job, ready_list_t *ready_list);
-	int proc_client_event(const Fdevent *fde, ready_list_t *ready_list);
-
-	int proc(ProcJob *job);
+	int proc(ProcWorkerPool *writer, ProcWorkerPool *reader, ProcJob *job);
 
 	int num_readers;
 	int num_writers;
-	ProcWorkerPool *writer;
-	ProcWorkerPool *reader;
-	
 	bool readonly;
-
+	const char *ip;
+	int port;
 	NetworkServer();
 
 protected:
@@ -57,14 +48,13 @@ public:
 	int link_count;
 	bool need_auth;
     std::set<std::string> passwords;
-	double slowlog_timeout; // in ms, but in config file, it's in seconds
 
 	~NetworkServer();
 	
 	// could be called only once
 	static NetworkServer* init(const char *conf_file, int num_readers=-1, int num_writers=-1);
 	static NetworkServer* init(const Config &conf, int num_readers=-1, int num_writers=-1);
-	void serve();
+	static void *serve(void *arg);
 };
 
 
