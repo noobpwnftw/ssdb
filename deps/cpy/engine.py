@@ -156,7 +156,6 @@ class CpyBuilder:
 		self.fp.close()
 
 	def write(self, text):
-		text = text.encode('utf-8')
 		self.fp.write(text)
 		# debug
 		#sys.stdout.write(text)
@@ -301,7 +300,7 @@ class CpyBuilder:
 
 	def op_print(self, text):
 		self.write(self.indent())
-		self.write('print %s\n' % text)
+		self.write('print (%s)\n' % text)
 
 	def op_printf(self, format, text):
 		self.write(self.indent())
@@ -465,7 +464,7 @@ class CpyBuilder:
 		if var == None:
 			self.write('except %s:\n' % type)
 		else:
-			self.write('except %s , %s:\n' %(type, var))
+			self.write('except %s as %s:\n' %(type, var))
 
 	def op_finally(self):
 		self.write(self.indent())

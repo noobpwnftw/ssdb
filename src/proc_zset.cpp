@@ -5,7 +5,7 @@ found in the LICENSE file.
 */
 #include "proc_zset.h"
 
-int proc_zexists(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zexists(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -17,7 +17,7 @@ int proc_zexists(NetworkServer *net, Link *link, const Request &req, Response *r
 	return 0;
 }
 
-int proc_multi_zexists(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_zexists(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -37,7 +37,7 @@ int proc_multi_zexists(NetworkServer *net, Link *link, const Request &req, Respo
 	return 0;
 }
 
-int proc_multi_zsize(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_zsize(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 
@@ -55,7 +55,7 @@ int proc_multi_zsize(NetworkServer *net, Link *link, const Request &req, Respons
 	return 0;
 }
 
-int proc_multi_zset(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_zset(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	if(req.size() < 4 || req.size() % 2 != 0){
 		resp->push_back("client_error");
@@ -79,7 +79,7 @@ int proc_multi_zset(NetworkServer *net, Link *link, const Request &req, Response
 	return 0;
 }
 
-int proc_multi_zdel(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_zdel(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -100,7 +100,7 @@ int proc_multi_zdel(NetworkServer *net, Link *link, const Request &req, Response
 	return 0;
 }
 
-int proc_multi_zget(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_zget(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -120,7 +120,7 @@ int proc_multi_zget(NetworkServer *net, Link *link, const Request &req, Response
 	return 0;
 }
 
-int proc_zset(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zset(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -129,7 +129,7 @@ int proc_zset(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_zsize(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zsize(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 
@@ -138,7 +138,7 @@ int proc_zsize(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_zget(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zget(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -148,7 +148,7 @@ int proc_zget(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_zdel(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zdel(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -157,7 +157,7 @@ int proc_zdel(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_zrank(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zrank(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -170,7 +170,7 @@ int proc_zrank(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_zrrank(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zrrank(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -183,7 +183,7 @@ int proc_zrrank(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_zrange(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zrange(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -199,7 +199,7 @@ int proc_zrange(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_zrrange(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zrrange(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -215,7 +215,7 @@ int proc_zrrange(NetworkServer *net, Link *link, const Request &req, Response *r
 	return 0;
 }
 
-int proc_redis_zrange(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_redis_zrange(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -250,7 +250,7 @@ int proc_redis_zrange(NetworkServer *net, Link *link, const Request &req, Respon
 	return 0;
 }
 
-int proc_redis_zrrange(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_redis_zrrange(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -285,7 +285,7 @@ int proc_redis_zrrange(NetworkServer *net, Link *link, const Request &req, Respo
 	return 0;
 }
 
-int proc_zclear(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zclear(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 	
@@ -318,7 +318,7 @@ int proc_zclear(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_zscan(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zscan(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(6);
 
@@ -341,7 +341,7 @@ int proc_zscan(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_zrscan(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zrscan(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(6);
 
@@ -364,7 +364,7 @@ int proc_zrscan(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_zkeys(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zkeys(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(6);
 
@@ -378,7 +378,7 @@ int proc_zkeys(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_zlist(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zlist(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -389,7 +389,7 @@ int proc_zlist(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_zrlist(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zrlist(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -414,17 +414,17 @@ static int _zincr(SSDB *ssdb, const Request &req, Response *resp, int dir){
 	return 0;
 }
 
-int proc_zincr(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zincr(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	return _zincr(serv->ssdb, req, resp, 1);
 }
 
-int proc_zdecr(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zdecr(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	return _zincr(serv->ssdb, req, resp, -1);
 }
 
-int proc_zcount(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zcount(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -439,7 +439,7 @@ int proc_zcount(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_zsum(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zsum(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -454,7 +454,7 @@ int proc_zsum(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_zavg(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zavg(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -473,7 +473,7 @@ int proc_zavg(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_zremrangebyscore(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zremrangebyscore(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -494,7 +494,7 @@ int proc_zremrangebyscore(NetworkServer *net, Link *link, const Request &req, Re
 	return 0;
 }
 
-int proc_zremrangebyrank(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zremrangebyrank(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -547,7 +547,7 @@ void zpop(ZIterator *it, SSDBServer *serv, const Bytes &name, Response *resp){
 	}
 }
 
-int proc_zpop_front(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zpop_front(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -559,7 +559,7 @@ int proc_zpop_front(NetworkServer *net, Link *link, const Request &req, Response
 	return 0;
 }
 
-int proc_zpop_back(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zpop_back(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -571,7 +571,7 @@ int proc_zpop_back(NetworkServer *net, Link *link, const Request &req, Response 
 	return 0;
 }
 
-int proc_zfix(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_zfix(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 	

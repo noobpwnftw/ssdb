@@ -5,7 +5,26 @@ found in the LICENSE file.
 */
 #include "proc_hash.h"
 
-int proc_hexists(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_migrate_hset(NetworkServer *net, const Request &req, Response *resp){
+	SSDBServer *serv = (SSDBServer *)net->data;
+	if (req.size() < 4 || (req.size() - 1) % 3 != 0) {
+	resp->push_back("client_error with item count");
+	} else {
+	int num = 0;
+	const std::vector<Bytes> items(req.begin() + 1, req.end());
+	int ret = serv->ssdb->migrate_hset(items);
+	if (ret == -1) {
+		resp->push_back("error");
+		return 0;
+	} else {
+		num += ret;
+	}
+	resp->reply_int(0, num);
+	}
+	return 0;
+}
+
+int proc_hexists(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(3);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -17,7 +36,7 @@ int proc_hexists(NetworkServer *net, Link *link, const Request &req, Response *r
 	return 0;
 }
 
-int proc_multi_hexists(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_hexists(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(3);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -37,7 +56,7 @@ int proc_multi_hexists(NetworkServer *net, Link *link, const Request &req, Respo
 	return 0;
 }
 
-int proc_multi_hsize(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_hsize(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(2);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -55,60 +74,35 @@ int proc_multi_hsize(NetworkServer *net, Link *link, const Request &req, Respons
 	return 0;
 }
 
-int proc_multi_hset(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_hset(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	if(req.size() < 4 || req.size() % 2 != 0){
 		resp->push_back("client_error");
 	}else{
-		int num = 0;
 		const Bytes &name = req[1];
-		std::vector<Bytes>::const_iterator it = req.begin() + 2;
-		for(; it != req.end(); it += 2){
-			const Bytes &key = *it;
-			const Bytes &val = *(it + 1);
-			int ret = serv->ssdb->hset(name, key, val);
-			if(ret == -1){
-				resp->push_back("error");
-				return 0;
-			}else{
-				num += ret;
-			}
-		}
-		resp->reply_int(0, num);
+		int ret = serv->ssdb->multi_hset(name, req, 2);
+		resp->reply_int(0, ret);
 	}
 	return 0;
 }
 
-int proc_multi_hdel(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_hdel(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(3);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
-	int num = 0;
 	const Bytes &name = req[1];
-	std::vector<Bytes>::const_iterator it = req.begin() + 2;
-	for(; it != req.end(); it += 1){
-		const Bytes &key = *it;
-		int ret = serv->ssdb->hdel(name, key);
-		if(ret == -1){
-			resp->push_back("error");
-			return 0;
-		}else{
-			num += ret;
-		}
-	}
-	resp->reply_int(0, num);
+	int ret = serv->ssdb->multi_hdel(name, req, 2);
+	resp->reply_int(0, ret);
 	return 0;
 }
 
-int proc_multi_hget(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_multi_hget(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(3);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
 	resp->push_back("ok");
-	Request::const_iterator it=req.begin() + 1;
-	const Bytes name = *it;
-	it ++;
-	for(; it!=req.end(); it+=1){
+	const Bytes &name = req[1];
+	for(Request::const_iterator it=req.begin()+2; it!=req.end(); it++){
 		const Bytes &key = *it;
 		std::string val;
 		int ret = serv->ssdb->hget(name, key, &val);
@@ -120,7 +114,7 @@ int proc_multi_hget(NetworkServer *net, Link *link, const Request &req, Response
 	return 0;
 }
 
-int proc_hsize(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hsize(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(2);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -129,7 +123,7 @@ int proc_hsize(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_hset(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hset(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(4);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -138,7 +132,7 @@ int proc_hset(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_hget(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hget(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(3);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -148,7 +142,7 @@ int proc_hget(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_hdel(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hdel(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(3);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -157,7 +151,7 @@ int proc_hdel(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_hclear(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hclear(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(2);
 	SSDBServer *serv = (SSDBServer *)net->data;
 	
@@ -168,21 +162,27 @@ int proc_hclear(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_hgetall(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hgetall(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(2);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
-	HIterator *it = serv->ssdb->hscan(req[1], "", "", 2000000000);
+	std::vector<StrPair> values;
+	int ret = serv->ssdb->hgetall(req[1], values);
 	resp->push_back("ok");
-	while(it->next()){
-		resp->push_back(it->key);
-		resp->push_back(it->val);
+	if(ret != -1)
+	{
+		std::vector<StrPair>::iterator iter = values.begin();
+		while(iter != values.end())
+		{
+			resp->push_back(iter->first);
+			resp->push_back(iter->second);
+			iter++;
+		}
 	}
-	delete it;
 	return 0;
 }
 
-int proc_hscan(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hscan(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(5);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -197,7 +197,7 @@ int proc_hscan(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_hrscan(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hrscan(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(5);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -212,7 +212,7 @@ int proc_hrscan(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_hkeys(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hkeys(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(5);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -228,7 +228,7 @@ int proc_hkeys(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_hvals(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hvals(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(5);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -243,7 +243,7 @@ int proc_hvals(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_hlist(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hlist(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(4);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -254,7 +254,7 @@ int proc_hlist(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_hrlist(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hrlist(NetworkServer *net, const Request &req, Response *resp){
 	CHECK_NUM_PARAMS(4);
 	SSDBServer *serv = (SSDBServer *)net->data;
 
@@ -283,24 +283,12 @@ static int _hincr(SSDB *ssdb, const Request &req, Response *resp, int dir){
 	return 0;
 }
 
-int proc_hincr(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hincr(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	return _hincr(serv->ssdb, req, resp, 1);
 }
 
-int proc_hdecr(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_hdecr(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	return _hincr(serv->ssdb, req, resp, -1);
 }
-
-
-int proc_hfix(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	SSDBServer *serv = (SSDBServer *)net->data;
-	CHECK_NUM_PARAMS(2);
-	
-	const Bytes &name = req[1];
-	int64_t ret = serv->ssdb->hfix(name);
-	resp->reply_int(ret, ret);
-	return 0;
-}
-

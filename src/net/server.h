@@ -15,6 +15,8 @@ found in the LICENSE file.
 #include "proc.h"
 #include "worker.h"
 
+#define SERVE_THREADS 32
+
 class Link;
 class Config;
 class IpFilter;
@@ -25,46 +27,34 @@ typedef std::vector<Link *> ready_list_t;
 class NetworkServer
 {
 private:
-	int tick_interval;
-	int status_report_ticks;
+	Link* accept_link(Link *serv_link);
+	void proc_result(Fdevents *fdes, ProcJob *job, Link* link, ready_list_t *ready_list);
+	void proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_list_t *ready_list);
+	int proc(ProcJob *job, Link* link);
 
-	//Config *conf;
-	Link *serv_link;
-	Fdevents *fdes;
-
-	Link* accept_link();
-	int proc_result(ProcJob *job, ready_list_t *ready_list);
-	int proc_client_event(const Fdevent *fde, ready_list_t *ready_list);
-
-	int proc(ProcJob *job);
-
-	int num_readers;
-	int num_writers;
-	ProcWorkerPool *writer;
-	ProcWorkerPool *reader;
-	
+	ProcWorkerPool *workers;
 	bool readonly;
-
-	NetworkServer();
+	const char *sock_path;
 
 protected:
 	void usage(int argc, char **argv);
 
 public:
-	IpFilter *ip_filter;
+	NetworkServer(const Config &conf);
+	~NetworkServer();
+	static void *serve(void *arg);
 	void *data;
 	ProcMap proc_map;
-	int link_count;
+	int link_count[SERVE_THREADS];
+	int link_count_unix[SERVE_THREADS];
+	volatile int serve_max;
+	volatile int serve_accept;
+	IpFilter *ip_filter;
 	bool need_auth;
-    std::set<std::string> passwords;
-	double slowlog_timeout; // in ms, but in config file, it's in seconds
-
-	~NetworkServer();
-	
-	// could be called only once
-	static NetworkServer* init(const char *conf_file, int num_readers=-1, int num_writers=-1);
-	static NetworkServer* init(const Config &conf, int num_readers=-1, int num_writers=-1);
-	void serve();
+	std::set<std::string> passwords;
+	const char *ip;
+	int port;
+	Link* serv_sock;
 };
 
 

@@ -10,10 +10,15 @@ found in the LICENSE file.
 #include <string>
 #include <vector>
 
-#include "leveldb/db.h"
-#include "leveldb/options.h"
-#include "leveldb/slice.h"
-#include "leveldb/iterator.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/table.h"
+#include "ssdb/chess_merge.h"
+#include <table/terark_zip_table.h>
 
 #include "include.h"
 #include "ssdb/const.h"
@@ -21,14 +26,59 @@ found in the LICENSE file.
 #include "util/log.h"
 #include "util/file.h"
 #include "util/string_util.h"
+#include "block-queue.h"
 
-struct Config {
+// per Data (with chess data) is about 50+byte,
+// kQueueHardLimit = 10M ~ (1.5G RAM)
+static const int kQueueHardLimit = 1 * 1000 * 1000;
+static const int kBatchSize = 100;
+
+struct Data {
+	std::string key;
+	std::string value;
+	Data() {
+		key.clear();
+	}
+};
+
+struct DumpConfig {
 	std::string ip;
 	int port;
 	bool hasauth;
 	std::string auth;
 	std::string output_folder;
 };
+
+static const int kThreads = 8;
+std::vector<std::thread> threads;
+BlockQueue<Data> dqueue;
+
+void put_data(TERARKDB_NAMESPACE::DB* db) {
+	TERARKDB_NAMESPACE::WriteBatch batch;
+	TERARKDB_NAMESPACE::WriteOptions write_opts;
+	write_opts.disableWAL = true;
+	while (true) {
+		Data data = dqueue.pop();
+		if (!data.key.empty()) {
+			batch.Put(data.key, data.value);
+		}
+		if (data.key.empty() || batch.Count() >= kBatchSize) { // end signal
+			if (batch.Count() == 0) {
+				break;
+			}
+			TERARKDB_NAMESPACE::Status status = db->Write(write_opts, &batch);
+			if(!status.ok()){
+				fprintf(stderr, "write rocksdb error!\n");
+				fprintf(stderr, "ERROR: failed to dump data!\n");
+				exit(1);
+			}
+			if (data.key.empty()) {
+				break;
+			}
+			batch.Clear();
+		}
+	}
+}
 
 template<class T>
 static std::string serialize_req(T &req){
@@ -76,7 +126,7 @@ void usage(int argc, char **argv){
 	exit(1);   
 }
 
-int parse_options(Config *config, int argc, char **argv){
+int parse_options(DumpConfig *config, int argc, char **argv){
 	int i;
 	for(i = 1; i < argc; i++) {
 		bool lastarg = i==argc-1;
@@ -110,7 +160,7 @@ int main(int argc, char **argv){
 	welcome();
 	set_log_level(Logger::LEVEL_MIN);
 
-	Config config;
+	DumpConfig config;
 	config.ip = "127.0.0.1";
 	config.port = 8888;
 	config.hasauth = false;
@@ -142,19 +192,6 @@ int main(int argc, char **argv){
 	data_dir.append(config.output_folder);
 	data_dir.append("/data");
 	
-	{
-		std::string meta_dir = "";
-		meta_dir.append(config.output_folder);
-		meta_dir.append("/meta");
-
-		int ret;
-		ret = mkdir(meta_dir.c_str(), 0755);
-		if(ret == -1){
-			fprintf(stderr, "ERROR: error creating meta dir\n");
-			exit(1);
-		}
-	}
-
 	// connect to server
 	Link *link = Link::connect(config.ip.c_str(), config.port);
 	if(link == NULL){
@@ -171,18 +208,43 @@ int main(int argc, char **argv){
 	link->send("dump", "A", "", "-1");
 	link->flush();
 
-	leveldb::DB* db;
-	leveldb::Options options;
-	leveldb::Status status;
+	TERARKDB_NAMESPACE::DB* db;
+	TERARKDB_NAMESPACE::Options options;
+	TERARKDB_NAMESPACE::Status status;
 	options.create_if_missing = true;
-	options.write_buffer_size = 32 * 1024 * 1024;
-	options.max_file_size = 32 * 1048576; // leveldb 1.20
-	options.compression = leveldb::kSnappyCompression;
+	options.IncreaseParallelism();
+	options.OptimizeUniversalStyleCompaction(1024ULL * 1024 * 1024 * 4);
+	options.target_file_size_base = 1024ULL * 1024 * 512;
+	options.merge_operator.reset(new ChessMergeOperator());
+	options.compression = TERARKDB_NAMESPACE::kLZ4Compression;
+	options.compression_opts.max_dict_bytes = 1024ULL * 64;
+	options.compression_opts.zstd_max_train_bytes = 1024ULL * 256;
+	options.bottommost_compression = TERARKDB_NAMESPACE::kZSTD;
+	options.memtable_factory.reset(TERARKDB_NAMESPACE::NewPatriciaTrieRepFactory());
+	options.stats_dump_period_sec = 0;
+	options.delete_obsolete_files_period_micros = 0;
+	options.max_manifest_file_size = 0;
+	options.blob_size = -1;
+	options.compaction_options_universal.allow_trivial_move = true;
+	options.compaction_options_universal.size_ratio = 100;
 
-	status = leveldb::DB::Open(options, data_dir.c_str(), &db);
+	options.level0_file_num_compaction_trigger = -1;
+	options.level0_slowdown_writes_trigger = -1;
+	options.level0_stop_writes_trigger = (1<<30);
+	options.soft_pending_compaction_bytes_limit = 0;
+	options.hard_pending_compaction_bytes_limit = 0;
+	options.disable_auto_compactions = true;
+	options.max_compaction_bytes = (static_cast<uint64_t>(1) << 60);
+
+	status = TERARKDB_NAMESPACE::DB::Open(options, data_dir.c_str(), &db);
 	if(!status.ok()){
-		fprintf(stderr, "ERROR: open leveldb: %s error!\n", config.output_folder.c_str());
+		fprintf(stderr, "ERROR: open rocksdb: %s error!\n", config.output_folder.c_str());
 		exit(1);
+	}
+
+	// Launch a group of threads
+	for (int i = 0; i < kThreads; ++i) {
+		threads.push_back(std::thread(put_data, db));
 	}
 
 	int64_t dump_count = 0;
@@ -223,15 +285,13 @@ int main(int argc, char **argv){
 				if(key.size() == 0 || key.data()[0] == DataType::SYNCLOG){
 					continue;
 				}
-				
-				leveldb::Slice k(key.data(), key.size());
-				leveldb::Slice v(val.data(), val.size());
-				status = db->Put(leveldb::WriteOptions(), k, v);
-				//printf("set %s %s\n", str_escape(key.data(), key.size()).c_str(), str_escape(val.data(), val.size()).c_str());
-				if(!status.ok()){
-					fprintf(stderr, "put leveldb error!\n");
-					fprintf(stderr, "ERROR: failed to dump data!\n");
-					exit(1);
+
+				Data data;
+				data.key = std::string(key.data(), key.size());
+				data.value = std::string(val.data(), val.size());
+
+				if (dqueue.push(data) > kQueueHardLimit) {
+					usleep(1000);
 				}
 
 				dump_count ++;
@@ -249,17 +309,25 @@ int main(int argc, char **argv){
 
 	{
 		std::string val;
-		if(db->GetProperty("leveldb.stats", &val)){
+		if(db->GetProperty("rocksdb.stats", &val)){
 			printf("%s\n", val.c_str());
 		}
 	}
 
+	for (int i = 0; i < kThreads; i++) {
+		dqueue.push(Data()); // end signal
+	}
+	// Join the threads with the main thread
+	for (int i = 0; i < kThreads; ++i) {
+		threads[i].join();
+	}
+
 	printf("compacting data...\n");
-	db->CompactRange(NULL, NULL);
+	db->CompactRange(TERARKDB_NAMESPACE::CompactRangeOptions(), nullptr, nullptr);
 	
 	{
 		std::string val;
-		if(db->GetProperty("leveldb.stats", &val)){
+		if(db->GetProperty("rocksdb.stats", &val)){
 			printf("%s\n", val.c_str());
 		}
 	}
