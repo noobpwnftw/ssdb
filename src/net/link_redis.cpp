@@ -4,7 +4,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 */
 #include "link_redis.h"
-#include <map>
+#include <unordered_map>
 
 enum REPLY{
 	REPLY_BULK = 0,
@@ -34,7 +34,7 @@ enum STRATEGY{
 };
 
 static bool inited = false;
-static std::map<std::string, RedisRequestDesc> cmd_table;
+static std::unordered_map<std::string, RedisRequestDesc> cmd_table;
 
 struct RedisCommand_raw
 {
@@ -47,6 +47,7 @@ struct RedisCommand_raw
 static RedisCommand_raw cmds_raw[] = {
 	{STRATEGY_AUTO, "auth",		"auth",			REPLY_STATUS},
 	{STRATEGY_PING, "ping",		"ping",			REPLY_STATUS},
+	{STRATEGY_AUTO, "dbsize",	"dbsize",		REPLY_INT},
 
 	{STRATEGY_AUTO, "get",		"get",			REPLY_BULK},
 	{STRATEGY_AUTO, "getset",	"getset",		REPLY_BULK},
@@ -111,16 +112,15 @@ static RedisCommand_raw cmds_raw[] = {
 	{STRATEGY_AUTO, 	"llen",			"qsize",			REPLY_INT},
 	{STRATEGY_AUTO, 	"lsize",		"qsize",			REPLY_INT},
 	{STRATEGY_AUTO,		"lindex",		"qget", 			REPLY_BULK},
-	{STRATEGY_AUTO,		"lset",		    "qset", 			REPLY_STATUS},
+	{STRATEGY_AUTO,		"lset",			"qset", 			REPLY_STATUS},
 	{STRATEGY_AUTO,		"lrange",		"qslice",			REPLY_MULTI_BULK},
 
 	{STRATEGY_AUTO, 	NULL,			NULL,			0}
 };
 
-int RedisLink::convert_req(){
+void RedisLink::init(){
 	if(!inited){
 		inited = true;
-		
 		RedisCommand_raw *def = &cmds_raw[0];
 		while(def->redis_cmd != NULL){
 			RedisRequestDesc desc;
@@ -132,12 +132,13 @@ int RedisLink::convert_req(){
 			def += 1;
 		}
 	}
-	
-	this->req_desc = NULL;
-	
-	std::map<std::string, RedisRequestDesc>::iterator it;
+}
+
+int RedisLink::convert_req(){
+	std::unordered_map<std::string, RedisRequestDesc>::iterator it;
 	it = cmd_table.find(cmd);
 	if(it == cmd_table.end()){
+		this->req_desc = NULL;
 		recv_string.push_back(cmd);
 		for(int i=1; i<recv_bytes.size(); i++){
 			recv_string.push_back(recv_bytes[i].String());

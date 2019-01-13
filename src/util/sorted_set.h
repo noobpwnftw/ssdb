@@ -8,7 +8,7 @@ found in the LICENSE file.
 
 #include <inttypes.h>
 #include <string>
-#include <map>
+#include <unordered_map>
 #include <set>
 
 class SortedSet
@@ -52,7 +52,7 @@ private:
 		}
 	};
 	
-	std::map<std::string, std::set<Item>::iterator> existed;
+	std::unordered_map<std::string, std::set<Item>::iterator> existed;
 	std::set<Item> sorted_set;
 };
 

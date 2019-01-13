@@ -5,7 +5,7 @@ found in the LICENSE file.
 */
 #include "proc_sys.h"
 
-int proc_flushdb(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_flushdb(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	if(serv->slaves.size() > 0 || serv->backend_sync->stats().size() > 0){
 		resp->push_back("error");
@@ -17,61 +17,14 @@ int proc_flushdb(NetworkServer *net, Link *link, const Request &req, Response *r
 	return 0;
 }
 
-int proc_compact(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_compact(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	serv->ssdb->compact();
 	resp->push_back("ok");
 	return 0;
 }
 
-int proc_ignore_key_range(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	link->ignore_key_range = true;
-	resp->push_back("ok");
-	return 0;
-}
-
-// get kv_range, hash_range, zset_range, list_range
-int proc_get_key_range(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	SSDBServer *serv = (SSDBServer *)net->data;
-	std::string s, e;
-	int ret = serv->get_kv_range(&s, &e);
-	if(ret == -1){
-		resp->push_back("error");
-	}else{
-		resp->push_back("ok");
-		resp->push_back(s);
-		resp->push_back(e);
-		// TODO: hash_range, zset_range, list_range
-	}
-	return 0;
-}
-
-int proc_get_kv_range(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	SSDBServer *serv = (SSDBServer *)net->data;
-	std::string s, e;
-	int ret = serv->get_kv_range(&s, &e);
-	if(ret == -1){
-		resp->push_back("error");
-	}else{
-		resp->push_back("ok");
-		resp->push_back(s);
-		resp->push_back(e);
-	}
-	return 0;
-}
-
-int proc_set_kv_range(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	SSDBServer *serv = (SSDBServer *)net->data;
-	if(req.size() != 3){
-		resp->push_back("client_error");
-	}else{
-		serv->set_kv_range(req[1].String(), req[2].String());
-		resp->push_back("ok");
-	}
-	return 0;
-}
-
-int proc_dbsize(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_dbsize(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	uint64_t size = serv->ssdb->size();
 	resp->push_back("ok");
@@ -79,13 +32,13 @@ int proc_dbsize(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_version(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_version(NetworkServer *net, const Request &req, Response *resp){
 	resp->push_back("ok");
 	resp->push_back(SSDB_VERSION);
 	return 0;
 }
 
-int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_info(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	resp->push_back("ok");
 	resp->push_back("ssdb-server");
@@ -95,17 +48,7 @@ int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp
 		resp->push_back("links");
 		resp->add(net->link_count);
 	}
-	{
-		int64_t calls = 0;
-		proc_map_t::iterator it;
-		for(it=net->proc_map.begin(); it!=net->proc_map.end(); it++){
-			Command *cmd = it->second;
-			calls += cmd->calls;
-		}
-		resp->push_back("total_calls");
-		resp->add(calls);
-	}
-	
+
 	{
 		uint64_t size = serv->ssdb->size();
 		resp->push_back("dbsize");
@@ -134,33 +77,6 @@ int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp
 			resp->push_back("replication");
 			resp->push_back(s);
 		}
-	}
-	{
-		std::string val;
-		std::string s, e;
-		serv->get_kv_range(&s, &e);
-		char buf[512];
-		{
-			snprintf(buf, sizeof(buf), "    kv  : \"%s\" - \"%s\"",
-				str_escape(s).c_str(),
-				str_escape(e).c_str()
-				);
-			val.append(buf);
-		}
-		{
-			snprintf(buf, sizeof(buf), "\n    hash: \"\" - \"\"");
-			val.append(buf);
-		}
-		{
-			snprintf(buf, sizeof(buf), "\n    zset: \"\" - \"\"");
-			val.append(buf);
-		}
-		{
-			snprintf(buf, sizeof(buf), "\n    list: \"\" - \"\"");
-			val.append(buf);
-		}
-		resp->push_back("serv_key_range");
-		resp->push_back(val);
 	}
 
 	if(req.size() == 1 || req[1] == "range"){
@@ -198,7 +114,7 @@ int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp
 		resp->push_back(val);
 	}
 
-	if(req.size() == 1 || req[1] == "leveldb"){
+	if(req.size() == 1 || req[1] == "rocksdb"){
 		std::vector<std::string> tmp = serv->ssdb->info();
 		for(int i=0; i<(int)tmp.size(); i++){
 			std::string block = tmp[i];
@@ -206,18 +122,6 @@ int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp
 		}
 	}
 
-	if(req.size() > 1 && req[1] == "cmd"){
-		proc_map_t::iterator it;
-		for(it=net->proc_map.begin(); it!=net->proc_map.end(); it++){
-			Command *cmd = it->second;
-			resp->push_back("cmd." + cmd->name);
-			char buf[128];
-			snprintf(buf, sizeof(buf), "calls: %" PRIu64 "\ttime_wait: %.0f\ttime_proc: %.0f",
-				cmd->calls, cmd->time_wait, cmd->time_proc);
-			resp->push_back(buf);
-		}
-	}
-	
 	return 0;
 }
 
@@ -234,7 +138,7 @@ int proc_sync140(NetworkServer *net, Link *link, const Request &req, Response *r
 }
 
 // slaveof id host port [auth last_seq last_key]
-int proc_slaveof(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_slaveof(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 	
@@ -264,7 +168,7 @@ int proc_slaveof(NetworkServer *net, Link *link, const Request &req, Response *r
 	return 0;
 }
 
-int proc_clear_binlog(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_clear_binlog(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	serv->ssdb->binlogs->flush();
 	resp->push_back("ok");
