@@ -41,9 +41,9 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 	ssdb->options.create_if_missing = true;
 	ssdb->options.create_missing_column_families = true;
 	ssdb->options.IncreaseParallelism();
-	ssdb->options.OptimizeUniversalStyleCompaction(1024 * 1024 * 4 * opt.write_buffer_size);
+	ssdb->options.OptimizeUniversalStyleCompaction(1024ULL * 1024 * 4 * opt.write_buffer_size);
 	ssdb->options.max_open_files = opt.max_open_files;
-	ssdb->options.target_file_size_base = 1024 * 1024 * opt.sst_size;
+	ssdb->options.target_file_size_base = 1024ULL * 1024 * opt.sst_size;
 	ssdb->options.merge_operator.reset(new ChessMergeOperator());
 	ssdb->options.compaction_filter = new ChessCompactionFilter();
 	ssdb->options.memtable_factory.reset(rocksdb::NewPatriciaTrieRepFactory());
@@ -51,8 +51,8 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 	ssdb->options.stats_dump_period_sec = 0;
 	if(opt.compression == "yes"){
 		ssdb->options.compression = rocksdb::kLZ4Compression;
-		ssdb->options.compression_opts.max_dict_bytes = 1024 * 64;
-		ssdb->options.compression_opts.zstd_max_train_bytes = 1024 * 256;
+		ssdb->options.compression_opts.max_dict_bytes = 1024ULL * 64;
+		ssdb->options.compression_opts.zstd_max_train_bytes = 1024ULL * 256;
 		ssdb->options.bottommost_compression = rocksdb::kZSTD;
 	}else{
 		ssdb->options.compression = rocksdb::kNoCompression;

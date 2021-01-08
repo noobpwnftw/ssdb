@@ -182,13 +182,13 @@ int main(int argc, char **argv){
 	rocksdb::Status status;
 	options.create_if_missing = true;
 	options.IncreaseParallelism();
-	options.OptimizeUniversalStyleCompaction(1024 * 1024 * 1024 * 4);
-	options.target_file_size_base = 1024 * 1024 * 512;
+	options.OptimizeUniversalStyleCompaction(1024ULL * 1024 * 1024 * 4);
+	options.target_file_size_base = 1024ULL * 1024 * 512;
 	options.merge_operator.reset(new ChessMergeOperator());
 	options.compaction_filter = new ChessCompactionFilter();
 	options.compression = rocksdb::kLZ4Compression;
-	options.compression_opts.max_dict_bytes = 1024 * 64;
-	options.compression_opts.zstd_max_train_bytes = 1024 * 256;
+	options.compression_opts.max_dict_bytes = 1024ULL * 64;
+	options.compression_opts.zstd_max_train_bytes = 1024ULL * 256;
 	options.bottommost_compression = rocksdb::kZSTD;
 	options.memtable_factory.reset(rocksdb::NewPatriciaTrieRepFactory());
 	options.stats_dump_period_sec = 0;
