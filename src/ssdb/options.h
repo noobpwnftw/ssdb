@@ -16,10 +16,9 @@ public:
 	
 	void load(const Config &conf);
 
-	size_t cache_size;
 	size_t max_open_files;
 	size_t write_buffer_size;
-	size_t block_size;
+	size_t sst_size;
 	std::string compression;
 	bool binlog;
 	size_t binlog_capacity;

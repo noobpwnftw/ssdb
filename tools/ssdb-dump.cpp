@@ -182,7 +182,7 @@ int main(int argc, char **argv){
 	rocksdb::Status status;
 	options.create_if_missing = true;
 	options.IncreaseParallelism();
-	options.OptimizeUniversalStyleCompaction(256 * 1024 * 1024 * 4);
+	options.OptimizeUniversalStyleCompaction(1024 * 1024 * 1024 * 4);
 	options.target_file_size_base = 1024 * 1024 * 512;
 	options.merge_operator.reset(new ChessMergeOperator());
 	options.compaction_filter = new ChessCompactionFilter();

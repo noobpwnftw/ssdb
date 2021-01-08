@@ -41,9 +41,9 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 	ssdb->options.create_if_missing = true;
 	ssdb->options.create_missing_column_families = true;
 	ssdb->options.IncreaseParallelism();
-	ssdb->options.OptimizeUniversalStyleCompaction(opt.write_buffer_size * 1024 * 1024 * 4);
+	ssdb->options.OptimizeUniversalStyleCompaction(1024 * 1024 * 4 * opt.write_buffer_size);
 	ssdb->options.max_open_files = opt.max_open_files;
-	ssdb->options.target_file_size_base = 1024 * 1024 * 512;
+	ssdb->options.target_file_size_base = 1024 * 1024 * opt.sst_size;
 	ssdb->options.merge_operator.reset(new ChessMergeOperator());
 	ssdb->options.compaction_filter = new ChessCompactionFilter();
 	ssdb->options.memtable_factory.reset(rocksdb::NewPatriciaTrieRepFactory());
@@ -60,8 +60,7 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 
 	static const std::string kOplogCF = "oplogCF";
 	rocksdb::ColumnFamilyOptions oplogOptions;
-	oplogOptions.write_buffer_size = opt.write_buffer_size * 1024 * 1024;
-	oplogOptions.target_file_size_base = 1024 * 1024 * 512;
+	oplogOptions.OptimizeUniversalStyleCompaction();
 	std::vector<rocksdb::ColumnFamilyDescriptor> cfDescriptors = {
 		rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, ssdb->options),
 		rocksdb::ColumnFamilyDescriptor(kOplogCF, oplogOptions)
