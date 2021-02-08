@@ -39,7 +39,7 @@ int SSDBImpl::multi_hset(const Bytes &name, const std::vector<Bytes> &kvs, int o
 		binlogs->Merge(hkey, slice(new_value));
 	}
 	binlogs->add_log(log_type, BinlogCommand::HSET, hkey);
-	rocksdb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("multi_hset error: %s", s.ToString().c_str());
 		return -1;
@@ -80,7 +80,7 @@ int SSDBImpl::multi_hdel(const Bytes &name, const std::vector<Bytes> &keys, int 
 		binlogs->Merge(hkey, slice(new_value));
 	}
 	binlogs->add_log(log_type, BinlogCommand::HSET, hkey);
-	rocksdb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("multi_hdel error: %s", s.ToString().c_str());
 		return -1;
@@ -101,7 +101,7 @@ int SSDBImpl::hset(const Bytes &name, const Bytes &key, const Bytes &val, char l
 //				return -1;
 //			}
 //		}
-		rocksdb::Status s = binlogs->commit();
+		TERARKDB_NAMESPACE::Status s = binlogs->commit();
 		if(!s.ok()){
 			return -1;
 		}
@@ -119,7 +119,7 @@ int SSDBImpl::hdel(const Bytes &name, const Bytes &key, char log_type){
 //				return -1;
 //			}
 //		}
-		rocksdb::Status s = binlogs->commit();
+		TERARKDB_NAMESPACE::Status s = binlogs->commit();
 		if(!s.ok()){
 			return -1;
 		}
@@ -153,7 +153,7 @@ int SSDBImpl::hincr(const Bytes &name, const Bytes &key, int64_t by, int64_t *ne
 //				return -1;
 //			}
 //		}
-		rocksdb::Status s = binlogs->commit();
+		TERARKDB_NAMESPACE::Status s = binlogs->commit();
 		if(!s.ok()){
 			return -1;
 		}
@@ -168,10 +168,10 @@ int SSDBImpl::migrate_hset(const std::vector<Bytes>& items, char log_type) {
 		Buffer new_value(4);
 		new_value.append(items[i + 1]);
 		new_value.append(items[i + 2]);
-		binlogs->Merge(hkey, rocksdb::Slice(new_value.data(), new_value.size()));
+		binlogs->Merge(hkey, TERARKDB_NAMESPACE::Slice(new_value.data(), new_value.size()));
 		binlogs->add_log(log_type, BinlogCommand::HSET, hkey);
 	}
-	rocksdb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if (!s.ok()) {
 		return -1;
 	}
@@ -181,9 +181,9 @@ int SSDBImpl::migrate_hset(const std::vector<Bytes>& items, char log_type) {
 int64_t SSDBImpl::hsize(const Bytes &name){
 	std::string dbkey = encode_hash_name(name);
 	std::string val;
-	rocksdb::Status s;
+	TERARKDB_NAMESPACE::Status s;
 
-	s = ldb->Get(rocksdb::ReadOptions(), dbkey, &val);
+	s = ldb->Get(TERARKDB_NAMESPACE::ReadOptions(), dbkey, &val);
 	if(s.IsNotFound()){
 		return 0;
 	}else if(!s.ok()){
@@ -198,7 +198,7 @@ int64_t SSDBImpl::hclear(const Bytes &name, char log_type){
 	std::string hkey = encode_hash_name(name);
 	binlogs->Delete(hkey);
 	binlogs->add_log(log_type, BinlogCommand::HDEL, hkey);
-	rocksdb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if (!s.ok()) {
 		return -1;
 	}
@@ -208,7 +208,7 @@ int64_t SSDBImpl::hclear(const Bytes &name, char log_type){
 int SSDBImpl::hget(const Bytes &name, const Bytes &key, std::string *val){
 	std::string dbkey = encode_hash_name(name);
 	std::string value;
-	rocksdb::Status s = ldb->Get(rocksdb::ReadOptions(), dbkey, &value);
+	TERARKDB_NAMESPACE::Status s = ldb->Get(TERARKDB_NAMESPACE::ReadOptions(), dbkey, &value);
 	if(s.IsNotFound()){
 		return 0;
 	}
@@ -221,7 +221,7 @@ int SSDBImpl::hget(const Bytes &name, const Bytes &key, std::string *val){
 int SSDBImpl::hgetall(const Bytes &name, std::deque<StrPair>& vals){
 	std::string dbkey = encode_hash_name(name);
 	std::string value;
-	rocksdb::Status s = ldb->Get(rocksdb::ReadOptions(), dbkey, &value);
+	TERARKDB_NAMESPACE::Status s = ldb->Get(TERARKDB_NAMESPACE::ReadOptions(), dbkey, &value);
 	if(s.IsNotFound()){
 		return 0;
 	}
@@ -357,7 +357,7 @@ static int incr_hsize(SSDBImpl *ssdb, const Bytes &name, int64_t incr){
 	if(size == 0){
 		ssdb->binlogs->Delete(size_key);
 	}else{
-		ssdb->binlogs->Put(size_key, rocksdb::Slice((char *)&size, sizeof(int64_t)));
+		ssdb->binlogs->Put(size_key, TERARKDB_NAMESPACE::Slice((char *)&size, sizeof(int64_t)));
 	}
 	return 0;
 }
@@ -372,9 +372,9 @@ int64_t SSDBImpl::hfix(const Bytes &name){
 
 	std::string size_key = encode_hsize_key(name);
 	if(size == 0){
-		ldb->Delete(rocksdb::WriteOptions(), size_key);
+		ldb->Delete(TERARKDB_NAMESPACE::WriteOptions(), size_key);
 	}else{
-		ldb->Put(rocksdb::WriteOptions(), size_key, rocksdb::Slice((char *)&size, sizeof(int64_t)));
+		ldb->Put(TERARKDB_NAMESPACE::WriteOptions(), size_key, TERARKDB_NAMESPACE::Slice((char *)&size, sizeof(int64_t)));
 	}
 	
 	return size;

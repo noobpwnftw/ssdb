@@ -10,10 +10,11 @@ found in the LICENSE file.
 #include <string>
 #include <deque>
 #include "../util/bytes.h"
+#include "rocksdb/terark_namespace.h"
 
 using StrPair = std::pair<std::string, std::string>;
 
-namespace rocksdb{
+namespace TERARKDB_NAMESPACE {
 	class Iterator;
 }
 
@@ -22,7 +23,7 @@ public:
 	enum Direction{
 		FORWARD, BACKWARD
 	};
-	Iterator(rocksdb::Iterator *it,
+	Iterator(TERARKDB_NAMESPACE::Iterator *it,
 			const std::string &end,
 			uint64_t limit,
 			Direction direction=Iterator::FORWARD);
@@ -32,7 +33,7 @@ public:
 	Bytes key();
 	Bytes val();
 private:
-	rocksdb::Iterator *it;
+	TERARKDB_NAMESPACE::Iterator *it;
 	std::string end;
 	uint64_t limit;
 	bool is_first;

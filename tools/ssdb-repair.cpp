@@ -47,20 +47,20 @@ int main(int argc, char **argv){
 		return 0;
 	}
 
-	rocksdb::Status status;
+	TERARKDB_NAMESPACE::Status status;
 
-	std::shared_ptr<rocksdb::Logger> logger;
-	status = rocksdb::Env::Default()->NewLogger("repair.log", &logger);
+	std::shared_ptr<TERARKDB_NAMESPACE::Logger> logger;
+	status = TERARKDB_NAMESPACE::Env::Default()->NewLogger("repair.log", &logger);
 	if(!status.ok()){
 		printf("logger error!\n");
 		return 0;
 	}
 	printf("writing repair log into: repair.log\n");
 
-	rocksdb::Options options;
+	TERARKDB_NAMESPACE::Options options;
 	options.info_log = logger;
 	options.merge_operator.reset(new ChessMergeOperator());
-	status = rocksdb::RepairDB(rocksdb_folder.c_str(), options);
+	status = TERARKDB_NAMESPACE::RepairDB(rocksdb_folder.c_str(), options);
 	if(!status.ok()){
 		printf("repair rocksdb: %s error!\n", rocksdb_folder.c_str());
 		return 0;

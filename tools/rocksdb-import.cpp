@@ -62,19 +62,19 @@ int main(int argc, char **argv){
 		return 0;
 	}
 
-	rocksdb::DB* db;
-	rocksdb::Options options;
-	rocksdb::Status status;
+	TERARKDB_NAMESPACE::DB* db;
+	TERARKDB_NAMESPACE::Options options;
+	TERARKDB_NAMESPACE::Status status;
 	//options.create_if_missing = true;
-	status = rocksdb::DB::Open(options, data_dir.c_str(), &db);
+	status = TERARKDB_NAMESPACE::DB::Open(options, data_dir.c_str(), &db);
 	if(!status.ok()){
 		printf("open rocksdb: %s error!\n", input_folder);
 		return 0;
 	}
 
 	printf("importing data...\n");
-	rocksdb::Iterator *it;
-	it = db->NewIterator(rocksdb::ReadOptions());
+	TERARKDB_NAMESPACE::Iterator *it;
+	it = db->NewIterator(TERARKDB_NAMESPACE::ReadOptions());
 	int save_count = 0;
 	for(it->SeekToFirst(); it->Valid(); it->Next()){
 		std::string key = it->key().ToString();

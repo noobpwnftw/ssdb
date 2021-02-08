@@ -270,7 +270,7 @@ int main(int argc, char **argv) {
 	  }
 
 	  printf("compacting data...\n");
-	  db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+	  db->CompactRange(TERARKDB_NAMESPACE::CompactRangeOptions(), nullptr, nullptr);
 
 	  {
 	  std::string val;

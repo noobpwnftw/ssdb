@@ -7,14 +7,14 @@
 #include "ssdb_impl.h"
 #include "t_hash.h"
 
-class ChessCompactionFilter : public rocksdb::CompactionFilter {
+class ChessCompactionFilter : public TERARKDB_NAMESPACE::CompactionFilter {
 public:
 	ChessCompactionFilter() {}
 	
 	virtual ~ChessCompactionFilter() { }
 
-	virtual Decision FilterV2(int level, const rocksdb::Slice& key, ValueType value_type,
-		const rocksdb::Slice& existing_value, std::string* new_value,
+	virtual Decision FilterV2(int level, const TERARKDB_NAMESPACE::Slice& key, ValueType value_type,
+		const TERARKDB_NAMESPACE::Slice& existing_value, std::string* new_value,
 		std::string* /*skip_until*/) const {
 		switch (value_type) {
 			case ValueType::kValue: {

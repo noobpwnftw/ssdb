@@ -21,17 +21,17 @@ found in the LICENSE file.
 #include "t_queue.h"
 
 inline
-static rocksdb::Slice slice(const Bytes &b){
-	return rocksdb::Slice(b.data(), b.size());
+static TERARKDB_NAMESPACE::Slice slice(const Bytes &b){
+	return TERARKDB_NAMESPACE::Slice(b.data(), b.size());
 }
 
 class SSDBImpl : public SSDB
 {
 private:
 	friend class SSDB;
-	rocksdb::DB* ldb;
-	rocksdb::Options options;
-	std::vector<rocksdb::ColumnFamilyHandle*> cfHandles;
+	TERARKDB_NAMESPACE::DB* ldb;
+	TERARKDB_NAMESPACE::Options options;
+	std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> cfHandles;
 
 	SSDBImpl();
 public:

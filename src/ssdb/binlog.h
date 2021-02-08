@@ -22,10 +22,10 @@ private:
 	static const unsigned int HEADER_LEN = sizeof(uint64_t) + 2;
 public:
 	Binlog(){}
-	Binlog(uint64_t seq, char type, char cmd, const rocksdb::Slice &key);
+	Binlog(uint64_t seq, char type, char cmd, const TERARKDB_NAMESPACE::Slice &key);
 		
 	int load(const Bytes &s);
-	int load(const rocksdb::Slice &s);
+	int load(const TERARKDB_NAMESPACE::Slice &s);
 	int load(const std::string &s);
 
 	uint64_t seq() const;
@@ -48,14 +48,14 @@ public:
 // circular queue
 class BinlogQueue{
 private:
-	rocksdb::DB *db;
-	std::vector<rocksdb::ColumnFamilyHandle*> cfHandles;
-	rocksdb::WriteOptions write_opts;
+	TERARKDB_NAMESPACE::DB *db;
+	std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> cfHandles;
+	TERARKDB_NAMESPACE::WriteOptions write_opts;
 	uint64_t min_seq_;
 	uint64_t last_seq;
 	uint64_t tran_seq;
 	int capacity;
-	rocksdb::WriteBatch batch;
+	TERARKDB_NAMESPACE::WriteBatch batch;
 
 	volatile bool thread_quit;
 	static void* log_clean_thread_func(void *arg);
@@ -69,17 +69,17 @@ private:
 public:
 	Mutex mutex;
 
-	BinlogQueue(rocksdb::DB *db, std::vector<rocksdb::ColumnFamilyHandle*> handles, bool enabled=true, int capacity=20000000);
+	BinlogQueue(TERARKDB_NAMESPACE::DB *db, std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> handles, bool enabled=true, int capacity=20000000);
 	~BinlogQueue();
 	void begin();
 	void rollback();
-	rocksdb::Status commit();
+	TERARKDB_NAMESPACE::Status commit();
 	// rocksdb put
-	void Put(const rocksdb::Slice& key, const rocksdb::Slice& value);
+	void Put(const TERARKDB_NAMESPACE::Slice& key, const TERARKDB_NAMESPACE::Slice& value);
 	// rocksdb delete
-	void Delete(const rocksdb::Slice& key);
-	void Merge(const rocksdb::Slice& key, const rocksdb::Slice& value);
-	void add_log(char type, char cmd, const rocksdb::Slice &key);
+	void Delete(const TERARKDB_NAMESPACE::Slice& key);
+	void Merge(const TERARKDB_NAMESPACE::Slice& key, const TERARKDB_NAMESPACE::Slice& value);
+	void add_log(char type, char cmd, const TERARKDB_NAMESPACE::Slice &key);
 	void add_log(char type, char cmd, const std::string &key);
 		
 	int get(uint64_t seq, Binlog *log) const;

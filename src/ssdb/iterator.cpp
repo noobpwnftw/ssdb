@@ -12,7 +12,7 @@ found in the LICENSE file.
 #include "../util/config.h"
 #include "rocksdb/iterator.h"
 
-Iterator::Iterator(rocksdb::Iterator *it,
+Iterator::Iterator(TERARKDB_NAMESPACE::Iterator *it,
 	const std::string &end,
 	uint64_t limit,
 	Direction direction)
@@ -29,12 +29,12 @@ Iterator::~Iterator() {
 }
 
 Bytes Iterator::key() {
-	rocksdb::Slice s = it->key();
+	TERARKDB_NAMESPACE::Slice s = it->key();
 	return Bytes(s.data(), s.size());
 }
 
 Bytes Iterator::val() {
-	rocksdb::Slice s = it->value();
+	TERARKDB_NAMESPACE::Slice s = it->value();
 	return Bytes(s.data(), s.size());
 }
 

@@ -26,7 +26,7 @@ int SSDBImpl::zset(const Bytes &name, const Bytes &key, const Bytes &score, char
 				return -1;
 			}
 		}
-		rocksdb::Status s = binlogs->commit();
+		TERARKDB_NAMESPACE::Status s = binlogs->commit();
 		if(!s.ok()){
 			log_error("zset error: %s", s.ToString().c_str());
 			return -1;
@@ -45,7 +45,7 @@ int SSDBImpl::zdel(const Bytes &name, const Bytes &key, char log_type){
 				return -1;
 			}
 		}
-		rocksdb::Status s = binlogs->commit();
+		TERARKDB_NAMESPACE::Status s = binlogs->commit();
 		if(!s.ok()){
 			log_error("zdel error: %s", s.ToString().c_str());
 			return -1;
@@ -77,7 +77,7 @@ int SSDBImpl::zincr(const Bytes &name, const Bytes &key, int64_t by, int64_t *ne
 				return -1;
 			}
 		}
-		rocksdb::Status s = binlogs->commit();
+		TERARKDB_NAMESPACE::Status s = binlogs->commit();
 		if(!s.ok()){
 			log_error("zset error: %s", s.ToString().c_str());
 			return -1;
@@ -89,9 +89,9 @@ int SSDBImpl::zincr(const Bytes &name, const Bytes &key, int64_t by, int64_t *ne
 int64_t SSDBImpl::zsize(const Bytes &name){
 	std::string size_key = encode_zsize_key(name);
 	std::string val;
-	rocksdb::Status s;
+	TERARKDB_NAMESPACE::Status s;
 
-	s = ldb->Get(rocksdb::ReadOptions(), size_key, &val);
+	s = ldb->Get(TERARKDB_NAMESPACE::ReadOptions(), size_key, &val);
 	if(s.IsNotFound()){
 		return 0;
 	}else if(!s.ok()){
@@ -108,7 +108,7 @@ int64_t SSDBImpl::zsize(const Bytes &name){
 
 int SSDBImpl::zget(const Bytes &name, const Bytes &key, std::string *score){
 	std::string buf = encode_zset_key(name, key);
-	rocksdb::Status s = ldb->Get(rocksdb::ReadOptions(), buf, score);
+	TERARKDB_NAMESPACE::Status s = ldb->Get(TERARKDB_NAMESPACE::ReadOptions(), buf, score);
 	if(s.IsNotFound()){
 		return 0;
 	}
@@ -367,7 +367,7 @@ static int incr_zsize(SSDBImpl *ssdb, const Bytes &name, int64_t incr){
 	if(size == 0){
 		ssdb->binlogs->Delete(size_key);
 	}else{
-		ssdb->binlogs->Put(size_key, rocksdb::Slice((char *)&size, sizeof(int64_t)));
+		ssdb->binlogs->Put(size_key, TERARKDB_NAMESPACE::Slice((char *)&size, sizeof(int64_t)));
 	}
 	return 0;
 }
@@ -376,7 +376,7 @@ int64_t SSDBImpl::zfix(const Bytes &name){
 	Transaction trans(binlogs);
 	std::string it_start, it_end;
 	Iterator *it;
-	rocksdb::Status s;
+	TERARKDB_NAMESPACE::Status s;
 	int64_t size = 0;
 	int64_t old_size;
 
@@ -404,7 +404,7 @@ int64_t SSDBImpl::zfix(const Bytes &name){
 		
 		std::string buf = encode_zset_key(name, key);
 		std::string score2;
-		s = ldb->Get(rocksdb::ReadOptions(), buf, &score2);
+		s = ldb->Get(TERARKDB_NAMESPACE::ReadOptions(), buf, &score2);
 		if(!s.ok() && !s.IsNotFound()){
 			log_error("zget error: %s", s.ToString().c_str());
 			size = -1;
@@ -416,7 +416,7 @@ int64_t SSDBImpl::zfix(const Bytes &name){
 				hexmem(key.data(), key.size()).c_str(),
 				hexmem(score.data(), score.size()).c_str()
 				);
-			s = ldb->Put(rocksdb::WriteOptions(), buf, score);
+			s = ldb->Put(TERARKDB_NAMESPACE::WriteOptions(), buf, score);
 			if(!s.ok()){
 				log_error("db error! %s", s.ToString().c_str());
 				size = -1;
@@ -438,9 +438,9 @@ int64_t SSDBImpl::zfix(const Bytes &name){
 			hexmem(name.data(), name.size()).c_str(), old_size, size);
 		std::string size_key = encode_zsize_key(name);
 		if(size == 0){
-			s = ldb->Delete(rocksdb::WriteOptions(), size_key);
+			s = ldb->Delete(TERARKDB_NAMESPACE::WriteOptions(), size_key);
 		}else{
-			s = ldb->Put(rocksdb::WriteOptions(), size_key, rocksdb::Slice((char *)&size, sizeof(int64_t)));
+			s = ldb->Put(TERARKDB_NAMESPACE::WriteOptions(), size_key, TERARKDB_NAMESPACE::Slice((char *)&size, sizeof(int64_t)));
 		}
 	}
 	
@@ -471,7 +471,7 @@ int64_t SSDBImpl::zfix(const Bytes &name){
 		
 		std::string buf = encode_zscore_key(name, key, score);
 		std::string score2;
-		s = ldb->Get(rocksdb::ReadOptions(), buf, &score2);
+		s = ldb->Get(TERARKDB_NAMESPACE::ReadOptions(), buf, &score2);
 		if(!s.ok() && !s.IsNotFound()){
 			log_error("zget error: %s", s.ToString().c_str());
 			size = -1;
@@ -483,7 +483,7 @@ int64_t SSDBImpl::zfix(const Bytes &name){
 				hexmem(key.data(), key.size()).c_str(),
 				hexmem(score.data(), score.size()).c_str()
 				);
-			s = ldb->Put(rocksdb::WriteOptions(), buf, "");
+			s = ldb->Put(TERARKDB_NAMESPACE::WriteOptions(), buf, "");
 			if(!s.ok()){
 				log_error("db error! %s", s.ToString().c_str());
 				size = -1;
@@ -505,9 +505,9 @@ int64_t SSDBImpl::zfix(const Bytes &name){
 			hexmem(name.data(), name.size()).c_str(), old_size, size);
 		std::string size_key = encode_zsize_key(name);
 		if(size == 0){
-			s = ldb->Delete(rocksdb::WriteOptions(), size_key);
+			s = ldb->Delete(TERARKDB_NAMESPACE::WriteOptions(), size_key);
 		}else{
-			s = ldb->Put(rocksdb::WriteOptions(), size_key, rocksdb::Slice((char *)&size, sizeof(int64_t)));
+			s = ldb->Put(TERARKDB_NAMESPACE::WriteOptions(), size_key, TERARKDB_NAMESPACE::Slice((char *)&size, sizeof(int64_t)));
 		}
 	}
 	

@@ -177,23 +177,23 @@ int main(int argc, char **argv){
 	link->send("dump", "A", "", "-1");
 	link->flush();
 
-	rocksdb::DB* db;
-	rocksdb::Options options;
-	rocksdb::Status status;
+	TERARKDB_NAMESPACE::DB* db;
+	TERARKDB_NAMESPACE::Options options;
+	TERARKDB_NAMESPACE::Status status;
 	options.create_if_missing = true;
 	options.IncreaseParallelism();
 	options.OptimizeUniversalStyleCompaction(1024ULL * 1024 * 1024 * 4);
 	options.target_file_size_base = 1024ULL * 1024 * 512;
 	options.merge_operator.reset(new ChessMergeOperator());
 	options.compaction_filter = new ChessCompactionFilter();
-	options.compression = rocksdb::kLZ4Compression;
+	options.compression = TERARKDB_NAMESPACE::kLZ4Compression;
 	options.compression_opts.max_dict_bytes = 1024ULL * 64;
 	options.compression_opts.zstd_max_train_bytes = 1024ULL * 256;
-	options.bottommost_compression = rocksdb::kZSTD;
-	options.memtable_factory.reset(rocksdb::NewPatriciaTrieRepFactory());
+	options.bottommost_compression = TERARKDB_NAMESPACE::kZSTD;
+	options.memtable_factory.reset(TERARKDB_NAMESPACE::NewPatriciaTrieRepFactory());
 	options.stats_dump_period_sec = 0;
 
-	status = rocksdb::DB::Open(options, data_dir.c_str(), &db);
+	status = TERARKDB_NAMESPACE::DB::Open(options, data_dir.c_str(), &db);
 	if(!status.ok()){
 		fprintf(stderr, "ERROR: open rocksdb: %s error!\n", config.output_folder.c_str());
 		exit(1);
@@ -238,9 +238,9 @@ int main(int argc, char **argv){
 					continue;
 				}
 				
-				rocksdb::Slice k(key.data(), key.size());
-				rocksdb::Slice v(val.data(), val.size());
-				status = db->Put(rocksdb::WriteOptions(), k, v);
+				TERARKDB_NAMESPACE::Slice k(key.data(), key.size());
+				TERARKDB_NAMESPACE::Slice v(val.data(), val.size());
+				status = db->Put(TERARKDB_NAMESPACE::WriteOptions(), k, v);
 				//printf("set %s %s\n", str_escape(key.data(), key.size()).c_str(), str_escape(val.data(), val.size()).c_str());
 				if(!status.ok()){
 					fprintf(stderr, "put rocksdb error!\n");
@@ -269,7 +269,7 @@ int main(int argc, char **argv){
 	}
 
 	printf("compacting data...\n");
-	db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+	db->CompactRange(TERARKDB_NAMESPACE::CompactRangeOptions(), nullptr, nullptr);
 	
 	{
 		std::string val;

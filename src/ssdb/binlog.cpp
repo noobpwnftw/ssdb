@@ -12,7 +12,7 @@ found in the LICENSE file.
 
 /* Binlog */
 
-Binlog::Binlog(uint64_t seq, char type, char cmd, const rocksdb::Slice &key){
+Binlog::Binlog(uint64_t seq, char type, char cmd, const TERARKDB_NAMESPACE::Slice &key){
 	buf.append((char *)(&seq), sizeof(uint64_t));
 	buf.push_back(type);
 	buf.push_back(cmd);
@@ -43,7 +43,7 @@ int Binlog::load(const Bytes &s){
 	return 0;
 }
 
-int Binlog::load(const rocksdb::Slice &s){
+int Binlog::load(const TERARKDB_NAMESPACE::Slice &s){
 	if(s.size() < HEADER_LEN){
 		return -1;
 	}
@@ -147,7 +147,7 @@ static inline std::string encode_seq_key(uint64_t seq){
 	return ret;
 }
 
-static inline uint64_t decode_seq_key(const rocksdb::Slice &key){
+static inline uint64_t decode_seq_key(const TERARKDB_NAMESPACE::Slice &key){
 	uint64_t seq = 0;
 	if(key.size() == (sizeof(uint64_t) + 1) && key.data()[0] == DataType::SYNCLOG){
 		seq = *((uint64_t *)(key.data() + 1));
@@ -156,7 +156,7 @@ static inline uint64_t decode_seq_key(const rocksdb::Slice &key){
 	return seq;
 }
 
-BinlogQueue::BinlogQueue(rocksdb::DB *db, std::vector<rocksdb::ColumnFamilyHandle*> handles, bool enabled, int capacity){
+BinlogQueue::BinlogQueue(TERARKDB_NAMESPACE::DB *db, std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> handles, bool enabled, int capacity){
 	this->db = db;
 	this->cfHandles = handles;
 	this->min_seq_ = 0;
@@ -223,8 +223,8 @@ void BinlogQueue::rollback(){
 	tran_seq = 0;
 }
 
-rocksdb::Status BinlogQueue::commit(){
-	rocksdb::Status s = db->Write(write_opts, &batch);
+TERARKDB_NAMESPACE::Status BinlogQueue::commit(){
+	TERARKDB_NAMESPACE::Status s = db->Write(write_opts, &batch);
 	if(s.ok()){
 		last_seq = tran_seq;
 		tran_seq = 0;
@@ -232,7 +232,7 @@ rocksdb::Status BinlogQueue::commit(){
 	return s;
 }
 
-void BinlogQueue::add_log(char type, char cmd, const rocksdb::Slice &key){
+void BinlogQueue::add_log(char type, char cmd, const TERARKDB_NAMESPACE::Slice &key){
 	if(!enabled){
 		return;
 	}
@@ -245,21 +245,21 @@ void BinlogQueue::add_log(char type, char cmd, const std::string &key){
 	if(!enabled){
 		return;
 	}
-	rocksdb::Slice s(key);
+	TERARKDB_NAMESPACE::Slice s(key);
 	this->add_log(type, cmd, s);
 }
 
 // rocksdb put
-void BinlogQueue::Put(const rocksdb::Slice& key, const rocksdb::Slice& value){
+void BinlogQueue::Put(const TERARKDB_NAMESPACE::Slice& key, const TERARKDB_NAMESPACE::Slice& value){
 	batch.Put(key, value);
 }
 
 // rocksdb delete
-void BinlogQueue::Delete(const rocksdb::Slice& key){
+void BinlogQueue::Delete(const TERARKDB_NAMESPACE::Slice& key){
 	batch.Delete(key);
 }
 
-void BinlogQueue::Merge(const rocksdb::Slice& key, const rocksdb::Slice& value){
+void BinlogQueue::Merge(const TERARKDB_NAMESPACE::Slice& key, const TERARKDB_NAMESPACE::Slice& value){
 	batch.Merge(key, value);
 }
 	
@@ -269,13 +269,13 @@ int BinlogQueue::find_next(uint64_t next_seq, Binlog *log) const{
 	}
 	uint64_t ret = 0;
 	std::string key_str = encode_seq_key(next_seq);
-	rocksdb::ReadOptions iterate_options;
-	rocksdb::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
+	TERARKDB_NAMESPACE::ReadOptions iterate_options;
+	TERARKDB_NAMESPACE::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
 	it->Seek(key_str);
 	if(it->Valid()){
-		rocksdb::Slice key = it->key();
+		TERARKDB_NAMESPACE::Slice key = it->key();
 		if(decode_seq_key(key) != 0){
-			rocksdb::Slice val = it->value();
+			TERARKDB_NAMESPACE::Slice val = it->value();
 			if(log->load(val) == -1){
 				ret = -1;
 			}else{
@@ -290,13 +290,13 @@ int BinlogQueue::find_next(uint64_t next_seq, Binlog *log) const{
 int BinlogQueue::find_min(Binlog *log) const{
 	int ret = 0;
 	std::string key_str = encode_seq_key(0);
-	rocksdb::ReadOptions iterate_options;
-	rocksdb::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
+	TERARKDB_NAMESPACE::ReadOptions iterate_options;
+	TERARKDB_NAMESPACE::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
 	it->Seek(key_str);
 	if(it->Valid()){
-		rocksdb::Slice key = it->key();
+		TERARKDB_NAMESPACE::Slice key = it->key();
 		if(decode_seq_key(key) != 0){
-			rocksdb::Slice val = it->value();
+			TERARKDB_NAMESPACE::Slice val = it->value();
 			if(log->load(val) == -1){
 				ret = -1;
 			}else{
@@ -337,8 +337,8 @@ int BinlogQueue::find_last(Binlog *log) const{
 	
 	// int ret = 0;
 	// std::string key_str = encode_seq_key(UINT64_MAX);
-	// rocksdb::ReadOptions iterate_options;
-	// rocksdb::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
+	// TERARKDB_NAMESPACE::ReadOptions iterate_options;
+	// TERARKDB_NAMESPACE::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
 	// it->Seek(key_str);
 	// if(!it->Valid()){
 	// 	// Iterator::prev requires Valid, so we seek to last
@@ -348,9 +348,9 @@ int BinlogQueue::find_last(Binlog *log) const{
 	// 	it->Prev();
 	// }
 	// if(it->Valid()){
-	// 	rocksdb::Slice key = it->key();
+	// 	TERARKDB_NAMESPACE::Slice key = it->key();
 	// 	if(decode_seq_key(key) != 0){
-	// 		rocksdb::Slice val = it->value();
+	// 		TERARKDB_NAMESPACE::Slice val = it->value();
 	// 		if(log->load(val) == -1){
 	// 			ret = -1;
 	// 		}else{
@@ -364,7 +364,7 @@ int BinlogQueue::find_last(Binlog *log) const{
 
 int BinlogQueue::get(uint64_t seq, Binlog *log) const{
 	std::string val;
-	rocksdb::Status s = db->Get(rocksdb::ReadOptions(), cfHandles[kOplogCFHandle], encode_seq_key(seq), &val);
+	TERARKDB_NAMESPACE::Status s = db->Get(TERARKDB_NAMESPACE::ReadOptions(), cfHandles[kOplogCFHandle], encode_seq_key(seq), &val);
 	if(s.ok()){
 		if(log->load(val) != -1){
 			return 1;
@@ -375,7 +375,7 @@ int BinlogQueue::get(uint64_t seq, Binlog *log) const{
 
 int BinlogQueue::update(uint64_t seq, char type, char cmd, const std::string &key){
 	Binlog log(seq, type, cmd, key);
-	rocksdb::Status s = db->Put(write_opts, cfHandles[kOplogCFHandle], encode_seq_key(seq), log.repr());
+	TERARKDB_NAMESPACE::Status s = db->Put(write_opts, cfHandles[kOplogCFHandle], encode_seq_key(seq), log.repr());
 	if(s.ok()){
 		return 0;
 	}
@@ -383,7 +383,7 @@ int BinlogQueue::update(uint64_t seq, char type, char cmd, const std::string &ke
 }
 
 int BinlogQueue::del(uint64_t seq){
-	rocksdb::Status s = db->Delete(write_opts, cfHandles[kOplogCFHandle], encode_seq_key(seq));
+	TERARKDB_NAMESPACE::Status s = db->Delete(write_opts, cfHandles[kOplogCFHandle], encode_seq_key(seq));
 	if(!s.ok()){
 		return -1;
 	}
@@ -396,7 +396,7 @@ void BinlogQueue::flush(){
 
 int BinlogQueue::del_range(uint64_t start, uint64_t end){
 	while(start <= end){
-		rocksdb::WriteBatch batch;
+		TERARKDB_NAMESPACE::WriteBatch batch;
 		for(int count = 0; start <= end && count < 1000; start++, count++){
 			batch.Delete(cfHandles[kOplogCFHandle], encode_seq_key(start));
 		}
@@ -405,7 +405,7 @@ int BinlogQueue::del_range(uint64_t start, uint64_t end){
 		if(!this->db){
 			return -1;
 		}
-		rocksdb::Status s = this->db->Write(write_opts, &batch);
+		TERARKDB_NAMESPACE::Status s = this->db->Write(write_opts, &batch);
 		if(!s.ok()){
 			return -1;
 		}
@@ -444,15 +444,15 @@ void* BinlogQueue::log_clean_thread_func(void *arg){
 // 例如, binlog-1 存在, 但后面的被删除了, 然后到 binlog-100000 时又开始存在.
 void BinlogQueue::clean_obsolete_binlogs(){
 	std::string key_str = encode_seq_key(this->min_seq_);
-	rocksdb::ReadOptions iterate_options;
-	rocksdb::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
+	TERARKDB_NAMESPACE::ReadOptions iterate_options;
+	TERARKDB_NAMESPACE::Iterator *it = db->NewIterator(iterate_options, cfHandles[kOplogCFHandle]);
 	it->Seek(key_str);
 	if(it->Valid()){
 		it->Prev();
 	}
 	uint64_t count = 0;
 	while(it->Valid()){
-		rocksdb::Slice key = it->key();
+		TERARKDB_NAMESPACE::Slice key = it->key();
 		uint64_t seq = decode_seq_key(key);
 		if(seq == 0){
 			break;

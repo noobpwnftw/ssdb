@@ -9,7 +9,7 @@
 #include "ssdb_impl.h"
 #include "t_hash.h"
 
-class ChessMergeOperator : public rocksdb::MergeOperator {
+class ChessMergeOperator : public TERARKDB_NAMESPACE::MergeOperator {
 public:
 	ChessMergeOperator() {}
 	
@@ -82,8 +82,8 @@ public:
 		return (*(int16_t*)value.data() == 0x7FFF);
 	}
 
-	virtual bool PartialMerge(const rocksdb::Slice& key, const rocksdb::Slice& left_operand,
-		const rocksdb::Slice& right_operand, std::string* new_value,
+	virtual bool PartialMerge(const TERARKDB_NAMESPACE::Slice& key, const TERARKDB_NAMESPACE::Slice& left_operand,
+		const TERARKDB_NAMESPACE::Slice& right_operand, std::string* new_value,
 		Logger* logger) const {
 		std::deque<BytesPair> arr;
 		static const int kExtraLen = 4;

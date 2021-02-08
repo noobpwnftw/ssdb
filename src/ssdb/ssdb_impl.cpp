@@ -46,26 +46,26 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 	ssdb->options.target_file_size_base = 1024ULL * 1024 * opt.sst_size;
 	ssdb->options.merge_operator.reset(new ChessMergeOperator());
 	ssdb->options.compaction_filter = new ChessCompactionFilter();
-	ssdb->options.memtable_factory.reset(rocksdb::NewPatriciaTrieRepFactory());
+	ssdb->options.memtable_factory.reset(TERARKDB_NAMESPACE::NewPatriciaTrieRepFactory());
 	ssdb->options.enable_pipelined_write = true;
 	ssdb->options.stats_dump_period_sec = 0;
 	if(opt.compression == "yes"){
-		ssdb->options.compression = rocksdb::kLZ4Compression;
+		ssdb->options.compression = TERARKDB_NAMESPACE::kLZ4Compression;
 		ssdb->options.compression_opts.max_dict_bytes = 1024ULL * 64;
 		ssdb->options.compression_opts.zstd_max_train_bytes = 1024ULL * 256;
-		ssdb->options.bottommost_compression = rocksdb::kZSTD;
+		ssdb->options.bottommost_compression = TERARKDB_NAMESPACE::kZSTD;
 	}else{
-		ssdb->options.compression = rocksdb::kNoCompression;
+		ssdb->options.compression = TERARKDB_NAMESPACE::kNoCompression;
 	}
 
 	static const std::string kOplogCF = "oplogCF";
-	rocksdb::ColumnFamilyOptions oplogOptions;
+	TERARKDB_NAMESPACE::ColumnFamilyOptions oplogOptions;
 	oplogOptions.OptimizeUniversalStyleCompaction();
-	std::vector<rocksdb::ColumnFamilyDescriptor> cfDescriptors = {
-		rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, ssdb->options),
-		rocksdb::ColumnFamilyDescriptor(kOplogCF, oplogOptions)
+	std::vector<TERARKDB_NAMESPACE::ColumnFamilyDescriptor> cfDescriptors = {
+		TERARKDB_NAMESPACE::ColumnFamilyDescriptor(TERARKDB_NAMESPACE::kDefaultColumnFamilyName, ssdb->options),
+		TERARKDB_NAMESPACE::ColumnFamilyDescriptor(kOplogCF, oplogOptions)
 	};
-	rocksdb::Status status = rocksdb::DB::Open(ssdb->options, dir, cfDescriptors, &ssdb->cfHandles, &ssdb->ldb);
+	TERARKDB_NAMESPACE::Status status = TERARKDB_NAMESPACE::DB::Open(ssdb->options, dir, cfDescriptors, &ssdb->cfHandles, &ssdb->ldb);
 	if (!status.ok()) {
 		log_error("open db failed: %s", status.ToString().c_str());
 		goto err;
@@ -86,10 +86,10 @@ int SSDBImpl::flushdb(){
 	{
 		Transaction trans(binlogs);
 		while(!stop){
-			rocksdb::Iterator *it;
-			rocksdb::ReadOptions iterate_options;
+			TERARKDB_NAMESPACE::Iterator *it;
+			TERARKDB_NAMESPACE::ReadOptions iterate_options;
 			iterate_options.fill_cache = false;
-			rocksdb::WriteOptions write_opts;
+			TERARKDB_NAMESPACE::WriteOptions write_opts;
 
 			it = ldb->NewIterator(iterate_options);
 			it->SeekToFirst();
@@ -99,7 +99,7 @@ int SSDBImpl::flushdb(){
 					break;
 				}
 				//log_debug("%s", hexmem(it->key().data(), it->key().size()).c_str());
-				rocksdb::Status s = ldb->Delete(write_opts, it->key());
+				TERARKDB_NAMESPACE::Status s = ldb->Delete(write_opts, it->key());
 				if(!s.ok()){
 					log_error("del error: %s", s.ToString().c_str());
 					stop = true;
@@ -116,8 +116,8 @@ int SSDBImpl::flushdb(){
 }
 
 Iterator* SSDBImpl::iterator(const std::string &start, const std::string &end, uint64_t limit){
-	rocksdb::Iterator *it;
-	rocksdb::ReadOptions iterate_options;
+	TERARKDB_NAMESPACE::Iterator *it;
+	TERARKDB_NAMESPACE::ReadOptions iterate_options;
 	iterate_options.fill_cache = false;
 	it = ldb->NewIterator(iterate_options);
 	it->Seek(start);
@@ -128,8 +128,8 @@ Iterator* SSDBImpl::iterator(const std::string &start, const std::string &end, u
 }
 
 Iterator* SSDBImpl::rev_iterator(const std::string &start, const std::string &end, uint64_t limit){
-	rocksdb::Iterator *it;
-	rocksdb::ReadOptions iterate_options;
+	TERARKDB_NAMESPACE::Iterator *it;
+	TERARKDB_NAMESPACE::ReadOptions iterate_options;
 	iterate_options.fill_cache = false;
 	it = ldb->NewIterator(iterate_options);
 	it->Seek(start);
@@ -144,8 +144,8 @@ Iterator* SSDBImpl::rev_iterator(const std::string &start, const std::string &en
 /* raw operates */
 
 int SSDBImpl::raw_set(const Bytes &key, const Bytes &val){
-	rocksdb::WriteOptions write_opts;
-	rocksdb::Status s = ldb->Put(write_opts, slice(key), slice(val));
+	TERARKDB_NAMESPACE::WriteOptions write_opts;
+	TERARKDB_NAMESPACE::Status s = ldb->Put(write_opts, slice(key), slice(val));
 	if(!s.ok()){
 		log_error("set error: %s", s.ToString().c_str());
 		return -1;
@@ -154,8 +154,8 @@ int SSDBImpl::raw_set(const Bytes &key, const Bytes &val){
 }
 
 int SSDBImpl::raw_del(const Bytes &key){
-	rocksdb::WriteOptions write_opts;
-	rocksdb::Status s = ldb->Delete(write_opts, slice(key));
+	TERARKDB_NAMESPACE::WriteOptions write_opts;
+	TERARKDB_NAMESPACE::Status s = ldb->Delete(write_opts, slice(key));
 	if(!s.ok()){
 		log_error("del error: %s", s.ToString().c_str());
 		return -1;
@@ -164,9 +164,9 @@ int SSDBImpl::raw_del(const Bytes &key){
 }
 
 int SSDBImpl::raw_get(const Bytes &key, std::string *val){
-	rocksdb::ReadOptions opts;
+	TERARKDB_NAMESPACE::ReadOptions opts;
 	opts.fill_cache = false;
-	rocksdb::Status s = ldb->Get(opts, slice(key), val);
+	TERARKDB_NAMESPACE::Status s = ldb->Get(opts, slice(key), val);
 	if(s.IsNotFound()){
 		return 0;
 	}
@@ -215,7 +215,7 @@ std::vector<std::string> SSDBImpl::info(){
 }
 
 void SSDBImpl::compact(){
-	ldb->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+	ldb->CompactRange(TERARKDB_NAMESPACE::CompactRangeOptions(), nullptr, nullptr);
 }
 
 int SSDBImpl::key_range(std::vector<std::string> *keys){
