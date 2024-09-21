@@ -56,9 +56,10 @@ void MyApplication::run(){
 	log_info("sst_size         : %d MB", option.sst_size);
 	log_info("write_buffer     : %d MB", option.write_buffer_size);
 	log_info("max_open_files   : %d", option.max_open_files);
-	log_info("compression      : %s", option.compression.c_str());
-	log_info("binlog           : %s", option.binlog? "yes" : "no");
+	log_info("compression      : %s", option.compression ? "yes" : "no");
+	log_info("binlog           : %s", option.binlog ? "yes" : "no");
 	log_info("binlog_capacity  : %d", option.binlog_capacity);
+	log_info("wal              : %s", option.wal ? "yes" : "no");
 	log_info("sync_speed       : %d MB/s", conf->get_num("replication.sync_speed"));
 
 	SSDB *data_db = NULL;

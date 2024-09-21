@@ -51,7 +51,7 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 	ssdb->options.stats_dump_period_sec = 0;
 	ssdb->options.blob_size = -1;
 
-	if(opt.compression == "yes"){
+	if(opt.compression){
 		ssdb->options.compression = TERARKDB_NAMESPACE::kLZ4Compression;
 		ssdb->options.compression_opts.max_dict_bytes = 1024ULL * 64;
 		ssdb->options.compression_opts.zstd_max_train_bytes = 1024ULL * 256;
@@ -59,6 +59,7 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 	}else{
 		ssdb->options.compression = TERARKDB_NAMESPACE::kNoCompression;
 	}
+	ssdb->write_opts.disableWAL = !opt.wal;
 
 	static const std::string kOplogCF = "oplogCF";
 	TERARKDB_NAMESPACE::ColumnFamilyOptions oplogOptions;
@@ -72,7 +73,7 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 		log_error("open db failed: %s", status.ToString().c_str());
 		goto err;
 	}
-	ssdb->binlogs = new BinlogQueue(ssdb->ldb, ssdb->cfHandles, opt.binlog, opt.binlog_capacity);
+	ssdb->binlogs = new BinlogQueue(ssdb->ldb, ssdb->cfHandles, opt.binlog, opt.binlog_capacity, opt.wal);
 
 	return ssdb;
 err:
@@ -87,6 +88,7 @@ int SSDBImpl::flushdb(){
 	bool stop = false;
 	{
 		while(!stop){
+			TERARKDB_NAMESPACE::WriteBatch batch;
 			TERARKDB_NAMESPACE::Iterator *it;
 			TERARKDB_NAMESPACE::ReadOptions iterate_options;
 			iterate_options.fill_cache = false;
@@ -99,14 +101,14 @@ int SSDBImpl::flushdb(){
 					break;
 				}
 				//log_debug("%s", hexmem(it->key().data(), it->key().size()).c_str());
-				TERARKDB_NAMESPACE::Status s = ldb->Delete(write_opts, it->key());
-				if(!s.ok()){
-					log_error("del error: %s", s.ToString().c_str());
-					stop = true;
-					ret = -1;
-					break;
-				}
+				batch.Delete(it->key());
 				it->Next();
+			}
+			TERARKDB_NAMESPACE::Status s = ldb->Write(write_opts, &batch);
+			if(!s.ok()){
+				log_error("del error: %s", s.ToString().c_str());
+				stop = true;
+				ret = -1;
 			}
 			delete it;
 		}
@@ -144,7 +146,6 @@ Iterator* SSDBImpl::rev_iterator(const std::string &start, const std::string &en
 /* raw operates */
 
 int SSDBImpl::raw_set(const Bytes &key, const Bytes &val){
-	TERARKDB_NAMESPACE::WriteOptions write_opts;
 	TERARKDB_NAMESPACE::Status s = ldb->Put(write_opts, slice(key), slice(val));
 	if(!s.ok()){
 		log_error("set error: %s", s.ToString().c_str());
@@ -154,7 +155,6 @@ int SSDBImpl::raw_set(const Bytes &key, const Bytes &val){
 }
 
 int SSDBImpl::raw_del(const Bytes &key){
-	TERARKDB_NAMESPACE::WriteOptions write_opts;
 	TERARKDB_NAMESPACE::Status s = ldb->Delete(write_opts, slice(key));
 	if(!s.ok()){
 		log_error("del error: %s", s.ToString().c_str());

@@ -74,7 +74,7 @@ private:
 	void merge();
 
 public:
-	BinlogQueue(TERARKDB_NAMESPACE::DB *db, std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> handles, bool enabled=true, int capacity=20000000);
+	BinlogQueue(TERARKDB_NAMESPACE::DB *db, std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> handles, bool enabled=true, int capacity=20000000, bool wal=true);
 	~BinlogQueue();
 	void begin();
 	void rollback();

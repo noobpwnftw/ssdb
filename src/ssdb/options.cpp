@@ -14,26 +14,35 @@ found in the LICENSE file.
 
 Options::Options(){
 	Config c;
-	this->load(c);
+	load(c);
 }
 
 void Options::load(const Config &conf){
 	max_open_files = (size_t)conf.get_num("rocksdb.max_open_files");
 	write_buffer_size = (size_t)conf.get_num("rocksdb.write_buffer_size");
 	sst_size = (size_t)conf.get_num("rocksdb.sst_size");
-	compression = conf.get_str("rocksdb.compression");
-	std::string binlog = conf.get_str("replication.binlog");
+	std::string compression_str = conf.get_str("rocksdb.compression");
+	std::string binlog_str = conf.get_str("replication.binlog");
 	binlog_capacity = (size_t)conf.get_num("replication.binlog.capacity");
+	std::string wal_str = conf.get_str("rocksdb.wal");
 
-	strtolower(&compression);
-	if(compression != "no"){
-		compression = "yes";
-	}
-	strtolower(&binlog);
-	if(binlog != "yes"){
-		this->binlog = false;
+	strtolower(&compression_str);
+	if(compression_str != "no"){
+		compression = true;
 	}else{
-		this->binlog = true;
+		compression = false;
+	}
+	strtolower(&binlog_str);
+	if(binlog_str != "yes"){
+		binlog = false;
+	}else{
+		binlog = true;
+	}
+	strtolower(&wal_str);
+	if(wal_str != "no"){
+		wal = true;
+	}else{
+		wal = false;
 	}
 	if(binlog_capacity <= 0){
 		binlog_capacity = LOG_QUEUE_SIZE;

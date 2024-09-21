@@ -158,7 +158,7 @@ static inline uint64_t decode_seq_key(const TERARKDB_NAMESPACE::Slice &key){
 	return seq;
 }
 
-BinlogQueue::BinlogQueue(TERARKDB_NAMESPACE::DB *db, std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> handles, bool enabled, int capacity){
+BinlogQueue::BinlogQueue(TERARKDB_NAMESPACE::DB *db, std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> handles, bool enabled, int capacity, bool wal){
 	this->db = db;
 	this->cfHandles = handles;
 	this->min_seq_ = 0;
@@ -166,11 +166,12 @@ BinlogQueue::BinlogQueue(TERARKDB_NAMESPACE::DB *db, std::vector<TERARKDB_NAMESP
 	this->tran_seq = 0;
 	this->capacity = capacity;
 	this->enabled = enabled;
+	this->write_opts.disableWAL = !wal;
 
 	if(!this->enabled){
 		return;
 	}
-	
+
 	Binlog log;
 	if(this->find_last(&log) == 1){
 		this->last_seq = log.seq();
