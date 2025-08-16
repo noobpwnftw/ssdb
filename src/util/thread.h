@@ -14,6 +14,7 @@ found in the LICENSE file.
 #include <pthread.h>
 #include <queue>
 #include <vector>
+#include <sys/eventfd.h>
 
 class Mutex{
 	private:
@@ -93,14 +94,14 @@ class Queue{
 template <class T>
 class SelectableQueue{
 	private:
-		int fds[2];
+		int efd;
 		pthread_mutex_t mutex;
 		std::queue<T> items;
 	public:
 		SelectableQueue();
 		~SelectableQueue();
 		int fd(){
-			return fds[0];
+			return efd;
 		}
 		int size();
 		// multi writer
@@ -208,33 +209,23 @@ int Queue<T>::pop(T *data){
 	if(pthread_mutex_lock(&mutex) != 0){
 		return -1;
 	}
-	{
-		// 必须放在循环中, 因为多个线程 pthread_cond_wait 可能同时返回(看具体实现策略)
-		while(items.empty()){
-			//fprintf(stderr, "%d wait\n", pthread_self());
-			if(pthread_cond_wait(&cond, &mutex) != 0){
-				//fprintf(stderr, "%s %d -1!\n", __FILE__, __LINE__);
-				return -1;
-			}
-			//fprintf(stderr, "%d wait 2\n", pthread_self());
+	while(items.empty()){
+		if(pthread_cond_wait(&cond, &mutex) != 0){
+			return -1;
 		}
-		*data = items.front();
-		//fprintf(stderr, "%d job: %d\n", pthread_self(), (int)*data);
-		items.pop();
 	}
-	if(pthread_mutex_unlock(&mutex) != 0){
-		//fprintf(stderr, "error!\n");
-		return -1;
-	}
-		//fprintf(stderr, "%d wait end 2, job: %d\n", pthread_self(), (int)*data);
+	*data = items.front();
+	items.pop();
+	pthread_mutex_unlock(&mutex);
 	return 1;
 }
 
 
 template <class T>
 SelectableQueue<T>::SelectableQueue(){
-	if(pipe(fds) == -1){
-		fprintf(stderr, "create pipe error\n");
+	efd = eventfd(0, EFD_NONBLOCK);
+	if(efd == -1){
+		fprintf(stderr, "create eventfd error\n");
 		exit(0);
 	}
 	pthread_mutex_init(&mutex, NULL);
@@ -243,8 +234,7 @@ SelectableQueue<T>::SelectableQueue(){
 template <class T>
 SelectableQueue<T>::~SelectableQueue(){
 	pthread_mutex_destroy(&mutex);
-	close(fds[0]);
-	close(fds[1]);
+	close(efd);
 }
 
 template <class T>
@@ -252,23 +242,21 @@ int SelectableQueue<T>::push(const T item){
 	if(pthread_mutex_lock(&mutex) != 0){
 		return -1;
 	}
+	bool need_signal = items.empty();
 	items.push(item);
-	while(1){
-		int n = ::write(fds[1], "1", 1);
-		if(n < 0){
-			if(errno == EINTR){
-				continue;
-			}else{
-				pthread_mutex_unlock(&mutex);
+	pthread_mutex_unlock(&mutex);
+	if (need_signal) {
+		uint64_t one = 1;
+		while(1){
+			int n = ::write(efd, &one, sizeof(one));
+			if(n < 0){
+				if(errno == EINTR) continue;
+				if(errno == EAGAIN) break;
 				return -1;
 			}
-		}else if(n == 0){
-			pthread_mutex_unlock(&mutex);
-			return -1;
+			break;
 		}
-		break;
 	}
-	pthread_mutex_unlock(&mutex);
 	return 1;
 }
 
@@ -283,33 +271,26 @@ int SelectableQueue<T>::size(){
 
 template <class T>
 int SelectableQueue<T>::pop(std::vector<T> *data){
-	char buf[1];
+	uint64_t cnt;
+	while(1){
+		int n = ::read(efd, &cnt, sizeof(cnt));
+		if(n < 0){
+			if(errno == EINTR) continue;
+			if(errno == EAGAIN) break;
+			return -1;
+		}
+		break;
+	}
 	if(pthread_mutex_lock(&mutex) != 0){
 		return -1;
 	}
 	while(!items.empty()){
 		data->push_back(items.front());
 		items.pop();
-		while(1){
-			int n = ::read(fds[0], buf, 1);
-			if(n < 0){
-				if(errno == EINTR){
-					continue;
-				}else{
-					pthread_mutex_unlock(&mutex);
-					return -1;
-				}
-			}else if(n == 0){
-				pthread_mutex_unlock(&mutex);
-				return -1;
-			}
-			break;
-		}
 	}
 	pthread_mutex_unlock(&mutex);
 	return 1;
 }
-
 
 
 template<class W, class JOB>
@@ -350,7 +331,7 @@ void* WorkerPool<W, JOB>::_run_worker(void *arg){
 		JOB job;
 		if(tp->jobs.pop(&job) == -1){
 			fprintf(stderr, "jobs.pop error\n");
-			::exit(0);
+			exit(0);
 			break;
 		}
 		if(!tp->started){
@@ -359,7 +340,7 @@ void* WorkerPool<W, JOB>::_run_worker(void *arg){
 		worker->proc(job);
 		if(tp->results.push(job) == -1){
 			fprintf(stderr, "results.push error\n");
-			::exit(0);
+			exit(0);
 			break;
 		}
 	}

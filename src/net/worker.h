@@ -11,7 +11,6 @@ found in the LICENSE file.
 #include "proc.h"
 #include <tbb/queuing_rw_mutex.h>
 
-// WARN: pipe latency is about 20 us, it is really slow!
 class ProcWorker : public WorkerPool<ProcWorker, ProcJob *>::Worker{
 public:
 	ProcWorker(const std::string &name);
