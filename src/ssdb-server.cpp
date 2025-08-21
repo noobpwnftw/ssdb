@@ -78,11 +78,10 @@ void MyApplication::run(){
 		exit(1);
 	}
 
-	NetworkServer *net = NULL;	
 	SSDBServer *server;
-	net = NetworkServer::init(*conf);
+	NetworkServer *net = new NetworkServer(*conf);
 	server = new SSDBServer(data_db, meta_db, *conf, net);
-	
+
 	log_info("pidfile: %s, pid: %d", app_args.pidfile.c_str(), (int)getpid());
 	log_info("ssdb server started.");
 

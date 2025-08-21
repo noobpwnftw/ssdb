@@ -28,33 +28,27 @@ private:
 	Link* accept_link(Link *serv_link);
 	int proc_result(Fdevents *fdes, ProcJob *job, ready_list_t *ready_list);
 	int proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_list_t *ready_list);
+	int proc(ProcWorkerPool *workers, ProcJob *job);
 
-	int proc(ProcWorkerPool *writer, ProcWorkerPool *reader, ProcJob *job);
-
-	int num_readers;
-	int num_writers;
+	Link *serv_link;
+	ProcWorkerPool *workers;
 	bool readonly;
 	const char *ip;
 	int port;
-	NetworkServer();
 
 protected:
 	void usage(int argc, char **argv);
 
 public:
-	IpFilter *ip_filter;
+	NetworkServer(const Config &conf);
+	~NetworkServer();
+	static void *serve(void *arg);
 	void *data;
 	ProcMap proc_map;
 	int link_count;
+	IpFilter *ip_filter;
 	bool need_auth;
     std::set<std::string> passwords;
-
-	~NetworkServer();
-	
-	// could be called only once
-	static NetworkServer* init(const char *conf_file, int num_readers=-1, int num_writers=-1);
-	static NetworkServer* init(const Config &conf, int num_readers=-1, int num_writers=-1);
-	static void *serve(void *arg);
 };
 
 

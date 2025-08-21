@@ -15,6 +15,8 @@ found in the LICENSE file.
 #include <queue>
 #include <vector>
 #include <sys/eventfd.h>
+#include <atomic>
+#include <sched.h>
 
 class Mutex{
 	private:
@@ -72,25 +74,26 @@ class Semaphore {
 
 
 // Thread safe queue
-template <class T>
-class Queue{
+template <class T, size_t CAP> class Queue {
+	static_assert((CAP& (CAP - 1)) == 0, "CAP must be power of two");
+	static_assert(CAP <= (1ull << 63),   "CAP must be < 2^63 for wrap-safe signed diffs");
 	private:
-		pthread_cond_t cond;
-		pthread_mutex_t mutex;
-		std::queue<T> items;
+		struct Slot {
+			std::atomic<uint64_t> seq;
+			T item;
+		};
+		Slot ring_[CAP];
+		std::atomic<uint64_t> tail_{ 0 };
+		std::atomic<uint64_t> head_{ 0 };
 	public:
 		Queue();
-		~Queue();
 
-		bool empty();
-		int size();
-		int push(const T item);
-		// TODO: with timeout
-		int pop(T *data);
+		void push(const T item);
+		bool pop(T *data);
 };
 
 
-// Selectable queue, multi writers, single reader
+// Selectable thread safe queue
 template <class T>
 class SelectableQueue{
 	private:
@@ -103,10 +106,7 @@ class SelectableQueue{
 		int fd(){
 			return efd;
 		}
-		int size();
-		// multi writer
 		int push(const T item);
-		// single reader
 		int pop(std::vector<T> *data);
 };
 
@@ -128,7 +128,7 @@ class WorkerPool{
 		};
 	private:
 		std::string name;
-		Queue<JOB> jobs;
+		Queue<JOB, (1<<16)> jobs;
 		SelectableQueue<JOB> results;
 
 		int num_workers;
@@ -139,6 +139,9 @@ class WorkerPool{
 			int id;
 			WorkerPool *tp;
 		};
+		pthread_cond_t cond;
+		pthread_mutex_t mutex;
+		bool pending_work;
 		static void* _run_worker(void *arg);
 	public:
 		WorkerPool(const char *name="");
@@ -148,78 +151,59 @@ class WorkerPool{
 			return results.fd();
 		}
 		
-		int start(int num_workers);
-		int stop();
+		void start(int num_workers);
+		void stop();
 		
-		int push(JOB job);
+		void push(JOB job);
 		int pop(std::vector<JOB> *job);
 };
 
-
-
-
-
-template <class T>
-Queue<T>::Queue(){
-	pthread_cond_init(&cond, NULL);
-	pthread_mutex_init(&mutex, NULL);
+template <class T, size_t CAP>
+Queue<T, CAP>::Queue(){
+	for (size_t i = 0; i < CAP; i++)
+		ring_[i].seq.store(i, std::memory_order_relaxed);
 }
 
-template <class T>
-Queue<T>::~Queue(){
-	pthread_cond_destroy(&cond);
-	pthread_mutex_destroy(&mutex);
-}
-
-template <class T>
-bool Queue<T>::empty(){
-	bool ret = false;
-	if(pthread_mutex_lock(&mutex) != 0){
-		return -1;
+template <class T, size_t CAP>
+void Queue<T, CAP>::push(const T item){
+	uint64_t pos = tail_.fetch_add(1, std::memory_order_relaxed);
+	Slot& s = ring_[pos & (CAP - 1)];
+	for (;;) {
+		uint64_t seq = s.seq.load(std::memory_order_acquire);
+		int64_t dif = (int64_t)(seq - pos);
+		if (dif == 0) break;
+		sched_yield();
 	}
-	ret = items.empty();
-	pthread_mutex_unlock(&mutex);
-	return ret;
+	s.item = std::move(item);
+	s.seq.store(pos + 1, std::memory_order_release);
 }
 
-template <class T>
-int Queue<T>::size(){
-	int ret = -1;
-	if(pthread_mutex_lock(&mutex) != 0){
-		return -1;
-	}
-	ret = items.size();
-	pthread_mutex_unlock(&mutex);
-	return ret;
-}
-
-template <class T>
-int Queue<T>::push(const T item){
-	if(pthread_mutex_lock(&mutex) != 0){
-		return -1;
-	}
-	items.push(item);
-	pthread_mutex_unlock(&mutex);
-	pthread_cond_signal(&cond);
-	return 1;
-}
-
-template <class T>
-int Queue<T>::pop(T *data){
-	if(pthread_mutex_lock(&mutex) != 0){
-		return -1;
-	}
-	while(items.empty()){
-		if(pthread_cond_wait(&cond, &mutex) != 0){
-			return -1;
+template <class T, size_t CAP>
+bool Queue<T, CAP>::pop(T *data){
+	uint64_t pos = head_.load(std::memory_order_relaxed);
+	for (;;) {
+		Slot& s = ring_[pos & (CAP - 1)];
+		uint64_t seq = s.seq.load(std::memory_order_acquire);
+		int64_t dif = (int64_t)(seq - (pos + 1));
+		if (dif == 0) {
+			if (head_.compare_exchange_weak(pos, pos + 1, std::memory_order_acq_rel,
+				std::memory_order_relaxed)) {
+				*data = std::move(s.item);
+				s.seq.store(pos + CAP, std::memory_order_release);
+				return true;
+			}
+			else {
+				continue;
+			}
+		}
+		else if (dif < 0) {
+			return false; // empty
+		}
+		else {
+			pos = head_.load(std::memory_order_relaxed);
 		}
 	}
-	*data = items.front();
-	items.pop();
-	pthread_mutex_unlock(&mutex);
-	return 1;
 }
-
 
 template <class T>
 SelectableQueue<T>::SelectableQueue(){
@@ -243,7 +227,7 @@ int SelectableQueue<T>::push(const T item){
 		return -1;
 	}
 	bool need_signal = items.empty();
-	items.push(item);
+	items.push(std::move(item));
 	pthread_mutex_unlock(&mutex);
 	if (need_signal) {
 		uint64_t one = 1;
@@ -261,15 +245,6 @@ int SelectableQueue<T>::push(const T item){
 }
 
 template <class T>
-int SelectableQueue<T>::size(){
-	int ret = 0;
-	pthread_mutex_lock(&mutex);
-	ret = items.size();
-	pthread_mutex_unlock(&mutex);
-	return ret;
-}
-
-template <class T>
 int SelectableQueue<T>::pop(std::vector<T> *data){
 	uint64_t cnt;
 	while(1){
@@ -284,8 +259,9 @@ int SelectableQueue<T>::pop(std::vector<T> *data){
 	if(pthread_mutex_lock(&mutex) != 0){
 		return -1;
 	}
+	data->reserve(items.size());
 	while(!items.empty()){
-		data->push_back(items.front());
+		data->emplace_back(std::move(items.front()));
 		items.pop();
 	}
 	pthread_mutex_unlock(&mutex);
@@ -295,25 +271,35 @@ int SelectableQueue<T>::pop(std::vector<T> *data){
 
 template<class W, class JOB>
 WorkerPool<W, JOB>::WorkerPool(const char *name){
+	pthread_mutex_init(&mutex, NULL);
+	pthread_cond_init(&cond, NULL);
 	this->name = name;
 	this->started = false;
+	this->pending_work = false;
 }
 
 template<class W, class JOB>
 WorkerPool<W, JOB>::~WorkerPool(){
-	if(started){
-		stop();
-	}
+	stop();
+	pthread_cond_destroy(&cond);
+	pthread_mutex_destroy(&mutex);
 }
 
 template<class W, class JOB>
-int WorkerPool<W, JOB>::push(JOB job){
-	return this->jobs.push(job);
+void WorkerPool<W, JOB>::push(const JOB job){
+	jobs.push(job);
+	bool need_wake;
+	pthread_mutex_lock(&mutex);
+	need_wake = !pending_work;
+	pending_work = true;
+	pthread_mutex_unlock(&mutex);
+	if (need_wake)
+		pthread_cond_signal(&cond);
 }
 
 template<class W, class JOB>
 int WorkerPool<W, JOB>::pop(std::vector<JOB> *job){
-	return this->results.pop(job);
+	return results.pop(job);
 }
 
 template<class W, class JOB>
@@ -328,20 +314,22 @@ void* WorkerPool<W, JOB>::_run_worker(void *arg){
 	worker->id = id;
 	worker->init();
 	while(1){
+		pthread_mutex_lock(&tp->mutex);
+		while(tp->started && !tp->pending_work)
+			pthread_cond_wait(&tp->cond, &tp->mutex);
+		if (!tp->started && !tp->pending_work) {
+			pthread_mutex_unlock(&tp->mutex);
+			break;
+		}
+		tp->pending_work = false;
+		pthread_mutex_unlock(&tp->mutex);
 		JOB job;
-		if(tp->jobs.pop(&job) == -1){
-			fprintf(stderr, "jobs.pop error\n");
-			exit(0);
-			break;
-		}
-		if(!tp->started){
-			break;
-		}
-		worker->proc(job);
-		if(tp->results.push(job) == -1){
-			fprintf(stderr, "results.push error\n");
-			exit(0);
-			break;
+		while (tp->jobs.pop(&job)) {
+			worker->proc(job);
+			if(tp->results.push(job) == -1){
+				exit(0);
+				break;
+			}
 		}
 	}
 	worker->destroy();
@@ -350,11 +338,15 @@ void* WorkerPool<W, JOB>::_run_worker(void *arg){
 }
 
 template<class W, class JOB>
-int WorkerPool<W, JOB>::start(int num_workers){
-	this->num_workers = num_workers;
+void WorkerPool<W, JOB>::start(int num_workers){
+	pthread_mutex_lock(&mutex);
 	if(started){
-		return 0;
+		pthread_mutex_unlock(&mutex);
+		return;
 	}
+	started = true;
+	pthread_mutex_unlock(&mutex);
+	this->num_workers = num_workers;
 	int err;
 	pthread_t tid;
 	for(int i=0; i<num_workers; i++){
@@ -369,24 +361,23 @@ int WorkerPool<W, JOB>::start(int num_workers){
 			tids.push_back(tid);
 		}
 	}
-	started = true;
-	return 0;
 }
 
 template<class W, class JOB>
-int WorkerPool<W, JOB>::stop(){
-	// notify and wait workers quit
-	started = false;
+void WorkerPool<W, JOB>::stop(){
 	// notify
-	for(int i=0; i<tids.size(); i++){
-		JOB j = NULL;
-		this->push(j);
+	pthread_mutex_lock(&mutex);
+	if(!started){
+		pthread_mutex_unlock(&mutex);
+		return;
 	}
+	started = false;
+	pthread_mutex_unlock(&mutex);
+	pthread_cond_broadcast(&cond);
 	// wait
-	for(int i=0; i<tids.size(); i++){
+	for(size_t i=0; i<tids.size(); i++){
 		pthread_join(tids[i], NULL);
 	}
-	return 0;
 }
 
 #endif

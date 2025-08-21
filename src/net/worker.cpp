@@ -19,7 +19,7 @@ void ProcWorker::init(){
 	log_debug("%s %d init", this->name.c_str(), this->id);
 }
 
-int ProcWorker::proc(ProcJob *job){
+int ProcWorker::proc(ProcJob* job){
 	const Request *req = job->req;
 	
 	proc_t p = job->cmd->proc;

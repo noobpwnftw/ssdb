@@ -130,8 +130,6 @@ void SSDBServer::reg_procs(NetworkServer *net){
 	REG_PROC(info, "rt");
 	REG_PROC(version, "r");
 	REG_PROC(dbsize, "rt");
-	// doing compaction in a reader thread, because we have only one
-	// writer thread(for performance reason); we don't want to block writes
 	REG_PROC(compact, "rt");
 
 	REG_PROC(ignore_key_range, "r");

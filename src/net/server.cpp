@@ -24,30 +24,27 @@ static DEF_PROC(list_deny_ip);
 static DEF_PROC(add_deny_ip);
 static DEF_PROC(del_deny_ip);
 
-#define READER_THREADS 8;
-#define WRITER_THREADS 8;
+#define WORKER_THREADS 32
 
 volatile bool quit = false;
 
 void signal_handler(int sig){
 	switch(sig){
 		case SIGTERM:
-		case SIGINT:{
+		case SIGINT:
+		{
 			quit = true;
 			break;
 		}
 	}
 }
 
-NetworkServer::NetworkServer(){
-	num_readers = READER_THREADS;
-	num_writers = WRITER_THREADS;
-
+NetworkServer::NetworkServer(const Config &conf){
 	link_count = 0;
 
-	ip_filter = new IpFilter();
-	
-	readonly = false;
+	signal(SIGPIPE, SIG_IGN);
+	signal(SIGINT, signal_handler);
+	signal(SIGTERM, signal_handler);
 
 	// add built-in procs, can be overridden
 	proc_map.set_proc("ping", "r", proc_ping);
@@ -60,61 +57,25 @@ NetworkServer::NetworkServer(){
 	proc_map.set_proc("add_deny_ip",   "r", proc_add_deny_ip);
 	proc_map.set_proc("del_deny_ip",   "r", proc_del_deny_ip);
 
-	signal(SIGPIPE, SIG_IGN);
-	signal(SIGINT, signal_handler);
-	signal(SIGTERM, signal_handler);
-}
-	
-NetworkServer::~NetworkServer(){
-	delete ip_filter;
-}
-
-NetworkServer* NetworkServer::init(const char *conf_file, int num_readers, int num_writers){
-	if(!is_file(conf_file)){
-		fprintf(stderr, "'%s' is not a file or not exists!\n", conf_file);
-		exit(1);
-	}
-
-	Config *conf = Config::load(conf_file);
-	if(!conf){
-		fprintf(stderr, "error loading conf file: '%s'\n", conf_file);
-		exit(1);
-	}
-	{
-		std::string conf_dir = real_dirname(conf_file);
-		if(chdir(conf_dir.c_str()) == -1){
-			fprintf(stderr, "error chdir: %s\n", conf_dir.c_str());
-			exit(1);
-		}
-	}
-	NetworkServer* serv = init(*conf, num_readers, num_writers);
-	delete conf;
-	return serv;
-}
-
-NetworkServer* NetworkServer::init(const Config &conf, int num_readers, int num_writers){
-	static bool inited = false;
-	if(inited){
-		return NULL;
-	}
-	inited = true;
-	
-	NetworkServer *serv = new NetworkServer();
-	if(num_readers >= 0){
-		serv->num_readers = num_readers;
-	}
-	if(num_writers >= 0){
-		serv->num_writers = num_writers;
-	}
-
 	// server
 	{
-		serv->ip = conf.get_str("server.ip");
-		serv->port = conf.get_num("server.port");
-		if(serv->ip == NULL || serv->ip[0] == '\0'){
-			serv->ip = "127.0.0.1";
+		ip = conf.get_str("server.ip");
+		port = conf.get_num("server.port");
+		if(ip == NULL || ip[0] == '\0'){
+			ip = "127.0.0.1";
 		}
-		log_info("server listen on %s:%d", serv->ip, serv->port);
+		log_info("server listen on %s:%d", ip, port);
+		serv_link = Link::listen(ip, port);
+		if(serv_link == NULL){
+			log_fatal("error opening server socket! %s", strerror(errno));
+			fprintf(stderr, "error opening server socket! %s\n", strerror(errno));
+			exit(1);
+		}
+		// see UNP
+		// if client send RST between server's calls of select() and accept(),
+		// accept() will block until next connection.
+		// so, set server socket nonblock.
+		serv_link->noblock();
 	}
 
 	// init auth
@@ -131,21 +92,22 @@ NetworkServer* NetworkServer::init(const Config &conf, int num_readers, int num_
 						fprintf(stderr, "WARNING! Weak password is not allowed!\n");
 						exit(1);
 					}
-					serv->passwords.insert(password);
+					passwords.insert(password);
 				}
 			}
 		}
-		if(serv->passwords.empty()){
-			serv->need_auth = false;
+		if(passwords.empty()){
+			need_auth = false;
 			log_info("    auth    : off");
 		}else{
-			serv->need_auth = true;
+			need_auth = true;
 			log_info("    auth    : on");
 		}
 	}
 
 	// init ip_filter
 	{
+		ip_filter = new IpFilter();
 		Config *cc = (Config *)conf.get("server");
 		if(cc != NULL){
 			std::vector<Config *> *children = &cc->children;
@@ -154,66 +116,50 @@ NetworkServer* NetworkServer::init(const Config &conf, int num_readers, int num_
 				if((*it)->key == "allow"){
 					const char *ip = (*it)->str();
 					log_info("    allow   : %s", ip);
-					serv->ip_filter->add_allow(ip);
+					ip_filter->add_allow(ip);
 				}
 				if((*it)->key == "deny"){
 					const char *ip = (*it)->str();
 					log_info("    deny    : %s", ip);
-					serv->ip_filter->add_deny(ip);
+					ip_filter->add_deny(ip);
 				}
 			}
 		}
 	}
-	
-	std::string readonly = conf.get_str("server.readonly");
-	strtolower(&readonly);
-	if(readonly == "yes"){
-		serv->readonly = true;
-	}else{
-		readonly = "no";
-		serv->readonly = false;
-	}
-	log_info("    readonly: %s", readonly.c_str());
 
-	return serv;
+	std::string readonly_str = conf.get_str("server.readonly");
+	strtolower(&readonly_str);
+	if(readonly_str == "yes"){
+		readonly = true;
+	}else{
+		readonly_str = "no";
+		readonly = false;
+	}
+	log_info("    readonly: %s", readonly_str.c_str());
+
+	workers = new ProcWorkerPool("workers");
+	workers->start(WORKER_THREADS);
+}
+	
+NetworkServer::~NetworkServer(){
+	workers->stop();
+	delete workers;
+	delete ip_filter;
+	delete serv_link;
 }
 
 void *NetworkServer::serve(void *arg){
-	Link *serv_link;
 	Fdevents *fdes;
 	const Fdevents::events_t *events;
-	ProcWorkerPool *writer;
-	ProcWorkerPool *reader;
 	ready_list_t ready_list;
 	ready_list_t ready_list_2;
 	ready_list_t::iterator it;
 	std::vector<ProcJob*> jobs;
 
 	NetworkServer *net = (NetworkServer*)arg;
-	// server
-	{
-		serv_link = Link::listen(net->ip, net->port);
-		if(serv_link == NULL){
-			log_fatal("error opening server socket! %s", strerror(errno));
-			fprintf(stderr, "error opening server socket! %s\n", strerror(errno));
-			exit(1);
-		}
-		// see UNP
-		// if client send RST between server's calls of select() and accept(),
-		// accept() will block until next connection.
-		// so, set server socket nonblock.
-		serv_link->noblock();
-	}
-
-	writer = new ProcWorkerPool("writer");
-	writer->start(net->num_writers);
-	reader = new ProcWorkerPool("reader");
-	reader->start(net->num_readers);
-
 	fdes = new Fdevents();
-	fdes->set(serv_link->fd(), FDEVENT_IN, 0, serv_link);
-	fdes->set(reader->fd(), FDEVENT_IN, 0, reader);
-	fdes->set(writer->fd(), FDEVENT_IN, 0, writer);
+	fdes->set(net->serv_link->fd(), FDEVENT_IN | FDEVENT_EXCL, 0, net->serv_link);
+	fdes->set(net->workers->fd(), FDEVENT_IN | FDEVENT_EXCL, 0, net->workers);
 
 	while(!quit){
 
@@ -224,7 +170,7 @@ void *NetworkServer::serve(void *arg){
 			// ready_list not empty, so we should return immediately
 			events = fdes->wait(0);
 		}else{
-			events = fdes->wait(50);
+			events = fdes->wait(100);
 		}
 		if(events == NULL){
 			log_fatal("events.wait error: %s", strerror(errno));
@@ -233,17 +179,15 @@ void *NetworkServer::serve(void *arg){
 
 		for(int i=0; i<(int)events->size(); i++){
 			const Fdevent *fde = events->at(i);
-			if(fde->data.ptr == serv_link){
-				Link *link = net->accept_link(serv_link);
-				if(link){
+			if(fde->data.ptr == net->serv_link){
+				Link *link;
+				while((link = net->accept_link(net->serv_link))) {
 					int cur = __sync_add_and_fetch(&net->link_count, 1);
 					log_debug("new link from %s:%d, fd: %d, links: %d",
 						link->remote_ip, link->remote_port, link->fd(), cur);
 					fdes->set(link->fd(), FDEVENT_IN, 1, link);
-				}else{
-					log_debug("accept return NULL");
 				}
-			}else if(fde->data.ptr == reader || fde->data.ptr == writer){
+			}else if(fde->data.ptr == net->workers){
 				ProcWorkerPool *worker = (ProcWorkerPool *)fde->data.ptr;
 				if(worker->pop(&jobs) == -1){
 					log_fatal("reading result from workers error!");
@@ -283,7 +227,7 @@ void *NetworkServer::serve(void *arg){
 			ProcJob *job = new ProcJob();
 			job->link = link;
 			job->req = link->last_recv();
-			int result = net->proc(writer, reader, job);
+			int result = net->proc(net->workers, job);
 			if(result == PROC_THREAD){
 				//
 			}else if(result == PROC_BACKEND){
@@ -296,21 +240,13 @@ void *NetworkServer::serve(void *arg){
 
 	}
 
-	writer->stop();
-	delete writer;
-	reader->stop();
-	delete reader;
-
-	delete serv_link;
 	delete fdes;
-
 	return NULL;
 }
 
 Link* NetworkServer::accept_link(Link *serv_link){
 	Link *link = serv_link->accept();
 	if(link == NULL){
-		log_error("accept failed! %s", strerror(errno));
 		return NULL;
 	}
 	if(!ip_filter->check_pass(link->remote_ip)){
@@ -410,7 +346,7 @@ int NetworkServer::proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_l
 	return 0;
 }
 
-int NetworkServer::proc(ProcWorkerPool *writer, ProcWorkerPool *reader, ProcJob *job){
+int NetworkServer::proc(ProcWorkerPool *workers, ProcJob *job){
 	job->serv = this;
 	job->result = PROC_OK;
 
@@ -438,11 +374,7 @@ int NetworkServer::proc(ProcWorkerPool *writer, ProcWorkerPool *reader, ProcJob 
 		}
 
 		if(job->cmd->flags & Command::FLAG_THREAD){
-			if(job->cmd->flags & Command::FLAG_WRITE){
-				writer->push(job);
-			}else{
-				reader->push(job);
-			}
+			workers->push(job);
 			return PROC_THREAD;
 		}
 

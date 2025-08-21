@@ -151,9 +151,6 @@ Link* Link::listen(const char *ip, int port){
 	if(::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1){
 		goto sock_err;
 	}
-	if(::setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) == -1){
-		goto sock_err;
-	}
 	if(::bind(sock, addr.addr(), addr.addrlen) == -1){
 		goto sock_err;
 	}
