@@ -11,16 +11,35 @@ found in the LICENSE file.
 #include "proc.h"
 #include <tbb/queuing_rw_mutex.h>
 
-class ProcWorker : public WorkerPool<ProcWorker, ProcJob*>::Worker{
+struct ProcJob{
+	int result;
+	NetworkServer *serv;
+	int fd;
+	uint64_t gen;
+	Command *cmd;
+
+	const Request *req;
+	Response resp;
+	Queue<ProcJob, (1 << 16)>* wq;
+	int efd;
+	void enqueue_write() {
+		wq->push(std::move(*this));
+		uint64_t one = 1; ::write(efd, &one, sizeof(one));
+	}
+};
+
+typedef Queue<ProcJob, (1 << 16)> WriteQueue;
+
+class ProcWorker : public WorkerPool<ProcWorker, ProcJob>::Worker{
 public:
 	ProcWorker(const std::string &name);
 	~ProcWorker(){}
 	void init();
-	int proc(ProcJob* job);
+	void proc(ProcJob* job);
 private:
 	tbb::queuing_rw_mutex::scoped_lock m_lock;
 };
 
-typedef WorkerPool<ProcWorker, ProcJob*> ProcWorkerPool;
+typedef WorkerPool<ProcWorker, ProcJob> ProcWorkerPool;
 
 #endif

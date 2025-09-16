@@ -19,48 +19,29 @@ class NetworkServer;
 #define PROC_THREAD		1
 #define PROC_BACKEND	100
 
-#define DEF_PROC(f) int proc_##f(NetworkServer *net, Link *link, const Request &req, Response *resp)
+#define DEF_PROC(f) int proc_##f(NetworkServer *net, const Request &req, Response *resp)
+#define DEF_LINK_PROC(f) int proc_##f(NetworkServer *net, Link* link, const Request &req, Response *resp)
 
 typedef std::vector<Bytes> Request;
-typedef int (*proc_t)(NetworkServer *net, Link *link, const Request &req, Response *resp);
+typedef int (*proc_t)(NetworkServer *net, const Request &req, Response *resp);
+typedef int (*proc_link_t)(NetworkServer *net, Link* link, const Request &req, Response *resp);
 
 struct Command{
 	static const int FLAG_READ		= (1 << 0);
 	static const int FLAG_WRITE		= (1 << 1);
-	static const int FLAG_BACKEND	= (1 << 2);
+	static const int FLAG_BLOCK		= (1 << 2);
 	static const int FLAG_THREAD	= (1 << 3);
-	static const int FLAG_BLOCK		= (1 << 4);
+	static const int FLAG_LINK		= (1 << 4);
 
 	std::string name;
 	int flags;
-	proc_t proc;
-	
+	void* proc;
+
 	Command(){
 		flags = 0;
 		proc = NULL;
 	}
 };
-
-struct ProcJob{
-	int result;
-	NetworkServer *serv;
-	Link *link;
-	Command *cmd;
-	
-	const Request *req;
-	Response resp;
-	
-	ProcJob(){
-		result = 0;
-		serv = NULL;
-		link = NULL;
-		cmd = NULL;
-		req = NULL;
-	}
-	~ProcJob(){
-	}
-};
-
 
 struct BytesEqual{
 	bool operator()(const Bytes &s1, const Bytes &s2) const {
@@ -83,10 +64,10 @@ private:
 public:
 	ProcMap();
 	~ProcMap();
-	void set_proc(const std::string &cmd, const char *sflags, proc_t proc);
-	void set_proc(const std::string &cmd, proc_t proc);
+	void set_proc(const std::string &cmd, const char *sflags, void* proc);
+	void set_proc(const std::string &cmd, void* proc);
 	Command* get_proc(const Bytes &str);
-	
+
 	proc_map_t::iterator begin(){
 		return proc_map.begin();
 	}

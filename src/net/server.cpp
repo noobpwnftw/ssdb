@@ -11,18 +11,19 @@ found in the LICENSE file.
 #include "../util/ip_filter.h"
 #include "link.h"
 #include <vector>
+#include <unordered_map>
 
 Mutex g_ip_filter_mutex;
 
 static DEF_PROC(ping);
 static DEF_PROC(info);
-static DEF_PROC(auth);
-static DEF_PROC(list_allow_ip);
-static DEF_PROC(add_allow_ip);
-static DEF_PROC(del_allow_ip);
-static DEF_PROC(list_deny_ip);
-static DEF_PROC(add_deny_ip);
-static DEF_PROC(del_deny_ip);
+static DEF_LINK_PROC(auth);
+static DEF_LINK_PROC(list_allow_ip);
+static DEF_LINK_PROC(add_allow_ip);
+static DEF_LINK_PROC(del_allow_ip);
+static DEF_LINK_PROC(list_deny_ip);
+static DEF_LINK_PROC(add_deny_ip);
+static DEF_LINK_PROC(del_deny_ip);
 
 #define WORKER_THREADS 32
 
@@ -47,35 +48,36 @@ NetworkServer::NetworkServer(const Config &conf){
 	signal(SIGTERM, signal_handler);
 
 	// add built-in procs, can be overridden
-	proc_map.set_proc("ping", "r", proc_ping);
-	proc_map.set_proc("info", "r", proc_info);
-	proc_map.set_proc("auth", "r", proc_auth);
-	proc_map.set_proc("list_allow_ip", "r", proc_list_allow_ip);
-	proc_map.set_proc("add_allow_ip",  "r", proc_add_allow_ip);
-	proc_map.set_proc("del_allow_ip",  "r", proc_del_allow_ip);
-	proc_map.set_proc("list_deny_ip",  "r", proc_list_deny_ip);
-	proc_map.set_proc("add_deny_ip",   "r", proc_add_deny_ip);
-	proc_map.set_proc("del_deny_ip",   "r", proc_del_deny_ip);
+	proc_map.set_proc("ping", "r", (void*)proc_ping);
+	proc_map.set_proc("info", "r", (void*)proc_info);
+	proc_map.set_proc("auth", "l", (void*)proc_auth);
+	proc_map.set_proc("list_allow_ip", "l", (void*)proc_list_allow_ip);
+	proc_map.set_proc("add_allow_ip",  "l", (void*)proc_add_allow_ip);
+	proc_map.set_proc("del_allow_ip",  "l", (void*)proc_del_allow_ip);
+	proc_map.set_proc("list_deny_ip",  "l", (void*)proc_list_deny_ip);
+	proc_map.set_proc("add_deny_ip",   "l", (void*)proc_add_deny_ip);
+	proc_map.set_proc("del_deny_ip",   "l", (void*)proc_del_deny_ip);
 
 	// server
 	{
 		ip = conf.get_str("server.ip");
 		port = conf.get_num("server.port");
+		sock_path = conf.get_str("server.sock_path");
 		if(ip == NULL || ip[0] == '\0'){
 			ip = "127.0.0.1";
 		}
-		log_info("server listen on %s:%d", ip, port);
-		serv_link = Link::listen(ip, port);
-		if(serv_link == NULL){
+		if(sock_path == NULL || sock_path[0] == '\0'){
+			sock_path = "/tmp/ssdb.sock";
+		}
+		unlink(sock_path);
+		log_info("server listen on %s:%d unix://%s", ip, port, sock_path);
+		serv_sock = Link::listen(AF_UNIX, sock_path, 0);
+		if(serv_sock == NULL){
 			log_fatal("error opening server socket! %s", strerror(errno));
 			fprintf(stderr, "error opening server socket! %s\n", strerror(errno));
 			exit(1);
 		}
-		// see UNP
-		// if client send RST between server's calls of select() and accept(),
-		// accept() will block until next connection.
-		// so, set server socket nonblock.
-		serv_link->noblock();
+		serv_sock->noblock();
 	}
 
 	// init auth
@@ -139,14 +141,13 @@ NetworkServer::NetworkServer(const Config &conf){
 
 	RedisLink::init();
 	workers = new ProcWorkerPool("workers");
-	workers->start(WORKER_THREADS);
 }
 	
 NetworkServer::~NetworkServer(){
-	workers->stop();
+	delete serv_sock;
+	unlink(sock_path);
 	delete workers;
 	delete ip_filter;
-	delete serv_link;
 }
 
 void *NetworkServer::serve(void *arg){
@@ -155,13 +156,23 @@ void *NetworkServer::serve(void *arg){
 	ready_list_t ready_list;
 	ready_list_t ready_list_2;
 	ready_list_t::iterator it;
-	std::vector<ProcJob*> jobs;
+	WriteQueue* wq = new WriteQueue();
+	std::unordered_map<int, Link*> conns;
+	int efd = eventfd(0, EFD_NONBLOCK);
 
 	NetworkServer *net = (NetworkServer*)arg;
+	Link* serv_link = Link::listen(AF_INET, net->ip, net->port);
+	if(serv_link == NULL){
+		log_fatal("error opening server socket! %s", strerror(errno));
+		fprintf(stderr, "error opening server socket! %s\n", strerror(errno));
+		exit(1);
+	}
+	serv_link->noblock();
 	fdes = new Fdevents();
-	fdes->set(net->serv_link->fd(), FDEVENT_IN | FDEVENT_EXCL, 0, net->serv_link);
-	fdes->set(net->workers->fd(), FDEVENT_IN | FDEVENT_EXCL, 0, net->workers);
-
+	fdes->set(serv_link->fd(), FDEVENT_IN, 0, serv_link);
+	fdes->set(net->serv_sock->fd(), FDEVENT_IN, 0, net->serv_sock);
+	fdes->set(efd, FDEVENT_IN, 0, net);
+	net->workers->start(WORKER_THREADS);
 	while(!quit){
 
 		ready_list.swap(ready_list_2);
@@ -180,23 +191,45 @@ void *NetworkServer::serve(void *arg){
 
 		for(int i=0; i<(int)events->size(); i++){
 			const Fdevent *fde = events->at(i);
-			if(fde->data.ptr == net->serv_link){
-				Link *link;
-				while((link = net->accept_link(net->serv_link))) {
+			if(fde->data.ptr == net){
+				uint64_t v; while (::read(efd, &v, sizeof(v)) > 0) {}
+				ProcJob job;
+				while(wq->pop(&job)){
+					auto it = conns.find(job.fd);
+					if (it == conns.end())
+						continue;
+					Link* link = it->second;
+					if (link->gen() != job.gen)
+						continue;
+					if(link->send(job.resp.resp) == -1){
+						job.result = PROC_ERROR;
+					}else{
+						// try to write socket before it would be added to fdevents
+						// socket is NONBLOCK, so it won't block.
+						if(link->write() < 0){
+							job.result = PROC_ERROR;
+						}
+					}
+					net->proc_result(fdes, &job, link, &ready_list);
+				}
+			}else if(fde->data.ptr == serv_link){
+				Link* link;
+				while((link = net->accept_link(serv_link))) {
+					link->nodelay();
+					conns.emplace(link->fd(), link);
 					int cur = __sync_add_and_fetch(&net->link_count, 1);
 					log_debug("new link from %s:%d, fd: %d, links: %d",
 						link->remote_ip, link->remote_port, link->fd(), cur);
 					fdes->set(link->fd(), FDEVENT_IN, 1, link);
 				}
-			}else if(fde->data.ptr == net->workers){
-				ProcWorkerPool *worker = (ProcWorkerPool *)fde->data.ptr;
-				if(worker->pop(&jobs) == -1){
-					log_fatal("reading result from workers error!");
-					exit(0);
-				}
-				while(!jobs.empty()){
-					net->proc_result(fdes, jobs.back(), &ready_list);
-					jobs.pop_back();
+			}else if(fde->data.ptr == net->serv_sock){
+				Link* link = net->accept_link(net->serv_sock);
+				if(link) {
+					conns.emplace(link->fd(), link);
+					int cur = __sync_add_and_fetch(&net->link_count, 1);
+					log_debug("new link from %s:%d, fd: %d, links: %d",
+						link->remote_ip, link->remote_port, link->fd(), cur);
+					fdes->set(link->fd(), FDEVENT_IN, 1, link);
 				}
 			}else{
 				net->proc_client_event(fdes, fde, &ready_list);
@@ -204,11 +237,12 @@ void *NetworkServer::serve(void *arg){
 		}
 
 		for(it = ready_list.begin(); it != ready_list.end(); it ++){
-			Link *link = *it;
-			fdes->del(link->fd());
+			Link* link = *it;
 
 			if(link->error()){
 				__sync_fetch_and_sub(&net->link_count, 1);
+				fdes->del(link->fd());
+				conns.erase(link->fd());
 				delete link;
 				continue;
 			}
@@ -225,28 +259,42 @@ void *NetworkServer::serve(void *arg){
 				continue;
 			}
 
-			ProcJob *job = new ProcJob();
-			job->link = link;
-			job->req = link->last_recv();
-			int result = net->proc(net->workers, job);
+			ProcJob job;
+			job.fd = link->fd();
+			job.gen = link->gen();
+			job.wq = wq;
+			job.efd = efd;
+			int result = net->proc(&job, link);
 			if(result == PROC_THREAD){
 				//
 			}else if(result == PROC_BACKEND){
 				// link_count does not include backend links
 				__sync_fetch_and_sub(&net->link_count, 1);
+				fdes->del(link->fd());
+				conns.erase(link->fd());
 			}else{
-				net->proc_result(fdes, job, &ready_list_2);
+				net->proc_result(fdes, &job, link, &ready_list_2);
 			}
 		} // end foreach ready link
-
 	}
-
+	net->workers->stop();
+	while (!conns.empty()) {
+		Link* link = conns.begin()->second;
+		fdes->del(link->fd());
+		conns.erase(link->fd());
+		delete link;
+	}
+	fdes->del(serv_link->fd());
+	fdes->del(net->serv_sock->fd());
 	delete fdes;
+	delete serv_link;
+	close(efd);
+	delete wq;
 	return NULL;
 }
 
-Link* NetworkServer::accept_link(Link *serv_link){
-	Link *link = serv_link->accept();
+Link* NetworkServer::accept_link(Link* serv_link){
+	Link* link = serv_link->accept();
 	if(link == NULL){
 		return NULL;
 	}
@@ -255,19 +303,12 @@ Link* NetworkServer::accept_link(Link *serv_link){
 		delete link;
 		return NULL;
 	}
-
-	link->nodelay();
 	link->noblock();
 	return link;
 }
 
-int NetworkServer::proc_result(Fdevents *fdes, ProcJob *job, ready_list_t *ready_list){
-	Link *link = job->link;
-	int result = job->result;
-
-	delete job;
-	
-	if(result == PROC_ERROR){
+void NetworkServer::proc_result(Fdevents *fdes, ProcJob *job, Link* link, ready_list_t *ready_list){
+	if(job->result == PROC_ERROR){
 		link->mark_error();
 		ready_list->push_back(link);
 	}else{
@@ -279,39 +320,13 @@ int NetworkServer::proc_result(Fdevents *fdes, ProcJob *job, ready_list_t *ready
 				ready_list->push_back(link);
 			}
 		}else{
-			fdes->clr(link->fd(), FDEVENT_IN);
 			fdes->set(link->fd(), FDEVENT_OUT, 1, link);
 		}
 	}
-	return result;
 }
 
-/*
-event:
-	read => ready_list OR close
-	write => ready_list
-proc_result =>
-	done: write & (read OR ready_list)
-	async: stop (read & write)
-	
-1. When writing to a link, it may happen to be in the ready_list,
-so we cannot close that link in write process, we could only
-just mark it as closed.
-
-2. When reading from a link, it is never in the ready_list, so it
-is safe to close it in read process, also safe to put it into
-ready_list.
-
-3. Ignore FDEVENT_ERR
-
-A link is in either one of these places:
-	1. ready list
-	2. async worker queue
-	3. fdes
-So it safe to delete link when processing ready list and async worker result.
-*/
-int NetworkServer::proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_list_t *ready_list){
-	Link *link = (Link *)fde->data.ptr;
+void NetworkServer::proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_list_t *ready_list){
+	Link* link = (Link*)fde->data.ptr;
 	if(fde->events & FDEVENT_IN){
 		int len = link->read();
 		//log_debug("fd: %d read: %d", link->fd(), len);
@@ -319,7 +334,7 @@ int NetworkServer::proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_l
 			log_debug("fd: %d, read: %d, delete link", link->fd(), len);
 			link->mark_error();
 			ready_list->push_back(link);
-			return 0;
+			return;
 		}
 		ready_list->push_back(link);
 	}else if(fde->events & FDEVENT_OUT){
@@ -329,7 +344,7 @@ int NetworkServer::proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_l
 			log_debug("fd: %d, write: %d, delete link", link->fd(), len);
 			link->mark_error();
 			ready_list->push_back(link);
-			return 0;
+			return;
 		}
 
 		if(link->output->empty()){
@@ -340,22 +355,21 @@ int NetworkServer::proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_l
 				ready_list->push_back(link);
 			}
 		}else{
-			fdes->clr(link->fd(), FDEVENT_IN);
 			fdes->set(link->fd(), FDEVENT_OUT, 1, link);
 		}
 	}
-	return 0;
 }
 
-int NetworkServer::proc(ProcWorkerPool *workers, ProcJob *job){
+int NetworkServer::proc(ProcJob *job, Link* link){
 	job->serv = this;
 	job->result = PROC_OK;
+	job->req = link->last_recv();
 
 	const Request *req = job->req;
 
 	do{
 		// AUTH
-		if(need_auth && job->link->auth == false && req->at(0) != "auth"){
+		if(need_auth && link->auth == false && req->at(0) != "auth"){
 			job->resp.push_back("noauth");
 			job->resp.push_back("authentication required.");
 			break;
@@ -367,6 +381,11 @@ int NetworkServer::proc(ProcWorkerPool *workers, ProcJob *job){
 			job->resp.push_back("Unknown Command: " + req->at(0).String());
 			break;
 		}
+		if(job->cmd->flags & Command::FLAG_LINK) {
+			proc_link_t p = (proc_link_t)job->cmd->proc;
+			job->result = (*p)(this, link, *req, &job->resp);
+			break;
+		}
 
 		if(readonly && (job->cmd->flags & Command::FLAG_WRITE)){
 			job->resp.push_back("client_error");
@@ -375,20 +394,20 @@ int NetworkServer::proc(ProcWorkerPool *workers, ProcJob *job){
 		}
 
 		if(job->cmd->flags & Command::FLAG_THREAD){
-			workers->push(job);
+			workers->push(*job);
 			return PROC_THREAD;
 		}
 
-		proc_t p = job->cmd->proc;
-		job->result = (*p)(this, job->link, *req, &job->resp);
+		proc_t p = (proc_t)job->cmd->proc;
+		job->result = (*p)(this, *req, &job->resp);
 	}while(0);
 	
-	if(job->link->send(job->resp.resp) == -1){
+	if(link->send(job->resp.resp) == -1){
 		job->result = PROC_ERROR;
 	}else{
 		// try to write socket before it would be added to fdevents
 		// socket is NONBLOCK, so it won't block.
-		if(job->link->write() < 0){
+		if(link->write() < 0){
 			job->result = PROC_ERROR;
 		}
 	}
@@ -399,12 +418,12 @@ int NetworkServer::proc(ProcWorkerPool *workers, ProcJob *job){
 
 /* built-in procs */
 
-static int proc_ping(NetworkServer *net, Link *link, const Request &req, Response *resp){
+static int proc_ping(NetworkServer *net, const Request &req, Response *resp){
 	resp->push_back("ok");
 	return 0;
 }
 
-static int proc_info(NetworkServer *net, Link *link, const Request &req, Response *resp){
+static int proc_info(NetworkServer *net, const Request &req, Response *resp){
 	resp->push_back("ok");
 	resp->push_back("ideawu's network server framework");
 	resp->push_back("version");

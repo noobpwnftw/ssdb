@@ -23,10 +23,13 @@ fi
 if test -z "$CXX"; then
 	CXX=g++
 fi
+if test -z "$AR"; then
+	AR=gcc-ar
+fi
 
 case "$TARGET_OS" in
     Linux)
-        PLATFORM_CLIBS="-pthread -lgcc -lrt -ldl -ltbb -laio -lgomp"
+        PLATFORM_CLIBS="-pthread -lgcc -lrt -ldl -ltbb -lgomp -lboost_fiber -lboost_context"
         ;;
     *)
         echo "Unknown platform!" >&2
@@ -48,20 +51,19 @@ echo "#include <stdlib.h>" >> src/version.h
 rm -f build_config.mk
 echo CC=$CC >> build_config.mk
 echo CXX=$CXX >> build_config.mk
+echo AR=$AR >> build_config.mk
 echo "MAKE=$MAKE" >> build_config.mk
 echo "ROCKSDB_PATH=$ROCKSDB_PATH" >> build_config.mk
 
-echo "CFLAGS = -std=c++14 -faligned-new -DNDEBUG -D__STDC_FORMAT_MACROS -Wall -O3 -Wno-sign-compare -march=native -fomit-frame-pointer" >> build_config.mk
+echo "CFLAGS = -std=c++14 -faligned-new -DNDEBUG -D__STDC_FORMAT_MACROS -Wall -O3 -Wno-sign-compare -march=native -fomit-frame-pointer -flto" >> build_config.mk
 echo "CFLAGS += ${PLATFORM_CFLAGS}" >> build_config.mk
 echo "CFLAGS += -I \"$ROCKSDB_PATH/output/include\"" >> build_config.mk
 echo "CFLAGS += -I \"$ROCKSDB_PATH/third-party/terark-zip/src\"" >> build_config.mk
 echo "CFLAGS += -I \"$ROCKSDB_PATH\"" >> build_config.mk
 
-echo "CLIBS=" >> build_config.mk
+echo "CLIBS = -flto=auto" >> build_config.mk
 echo "CLIBS += $ROCKSDB_PATH/output/lib/libterarkdb.a" >> build_config.mk
 echo "CLIBS += $ROCKSDB_PATH/output/lib/libterark-zip-r.a" >> build_config.mk
-echo "CLIBS += $ROCKSDB_PATH/output/lib/libboost_fiber.a" >> build_config.mk
-echo "CLIBS += $ROCKSDB_PATH/output/lib/libboost_context.a" >> build_config.mk
 echo "CLIBS += $ROCKSDB_PATH/output/lib/libjemalloc.a" >> build_config.mk
 echo "CLIBS += $ROCKSDB_PATH/output/lib/libsnappy.a" >> build_config.mk
 echo "CLIBS += $ROCKSDB_PATH/output/lib/liblz4.a" >> build_config.mk

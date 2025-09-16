@@ -128,13 +128,6 @@ bool init_client(const std::string &ip, int port) {
 			log_error("fail to connect to server!");
 			return false;
 		}
-		const std::vector<std::string>* resp;
-		resp = client->request("ignore_key_range");
-		if (!resp || resp->empty() || resp->at(0) != "ok") {
-			log_error("src server ignore_key_range error!");
-			delete client;
-			return false;
-		}
 		clients.push_back(client);
 	}
 	// Launch a group of threads

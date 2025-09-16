@@ -18,11 +18,11 @@ ProcMap::~ProcMap(){
 	proc_map.clear();
 }
 
-void ProcMap::set_proc(const std::string &c, proc_t proc){
+void ProcMap::set_proc(const std::string &c, void* proc){
 	this->set_proc(c, "t", proc);
 }
 
-void ProcMap::set_proc(const std::string &c, const char *sflags, proc_t proc){
+void ProcMap::set_proc(const std::string &c, const char *sflags, void* proc){
 	Command *cmd = this->get_proc(c);
 	if(!cmd){
 		cmd = new Command();
@@ -40,13 +40,13 @@ void ProcMap::set_proc(const std::string &c, const char *sflags, proc_t proc){
 				cmd->flags |= Command::FLAG_WRITE;
 				break;
 			case 'b':
-				cmd->flags |= Command::FLAG_BACKEND;
+				cmd->flags |= Command::FLAG_BLOCK;
 				break;
 			case 't':
 				cmd->flags |= Command::FLAG_THREAD;
 				break;
-			case 'u':
-				cmd->flags |= Command::FLAG_BLOCK;
+			case 'l':
+				cmd->flags |= Command::FLAG_LINK;
 				break;
 		}
 	}

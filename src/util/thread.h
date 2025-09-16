@@ -89,24 +89,6 @@ public:
 	bool pop(T* data);
 };
 
-
-// Selectable thread safe queue
-template <class T>
-class SelectableQueue {
-private:
-	int efd;
-	pthread_mutex_t mutex;
-	std::queue<T> items;
-public:
-	SelectableQueue();
-	~SelectableQueue();
-	int fd() {
-		return efd;
-	}
-	int push(T item);
-	int pop(std::vector<T>* data);
-};
-
 template<class W, class JOB>
 class WorkerPool {
 public:
@@ -118,7 +100,7 @@ public:
 		int id;
 		virtual void init() {}
 		virtual void destroy() {}
-		virtual int proc(JOB job) = 0;
+		virtual void proc(JOB* job) = 0;
 	private:
 	protected:
 		std::string name;
@@ -126,7 +108,6 @@ public:
 private:
 	std::string name;
 	Queue<JOB, (1 << 16)> jobs;
-	SelectableQueue<JOB> results;
 
 	int num_workers;
 	std::vector<pthread_t> tids;
@@ -137,21 +118,16 @@ private:
 		WorkerPool* tp;
 	};
 	pthread_mutex_t mutex;
-	alignas(4) int pending_work;
+	alignas(64) int pending_work;
 	static void* _run_worker(void* arg);
 public:
 	WorkerPool(const char* name = "");
 	~WorkerPool();
 
-	int fd() {
-		return results.fd();
-	}
-
 	void start(int num_workers);
 	void stop();
 
-	void push(JOB job);
-	int pop(std::vector<JOB>* job);
+	void push(JOB& job);
 };
 
 template <class T, size_t CAP>
@@ -203,70 +179,6 @@ bool Queue<T, CAP>::pop(T* data) {
 	}
 }
 
-template <class T>
-SelectableQueue<T>::SelectableQueue() {
-	efd = eventfd(0, EFD_NONBLOCK);
-	if (efd == -1) {
-		fprintf(stderr, "create eventfd error\n");
-		exit(0);
-	}
-	pthread_mutex_init(&mutex, NULL);
-}
-
-template <class T>
-SelectableQueue<T>::~SelectableQueue() {
-	pthread_mutex_destroy(&mutex);
-	close(efd);
-}
-
-template <class T>
-int SelectableQueue<T>::push(T item) {
-	if (pthread_mutex_lock(&mutex) != 0) {
-		return -1;
-	}
-	bool need_signal = items.empty();
-	items.push(std::move(item));
-	pthread_mutex_unlock(&mutex);
-	if (need_signal) {
-		uint64_t one = 1;
-		while (1) {
-			int n = ::write(efd, &one, sizeof(one));
-			if (n < 0) {
-				if (errno == EINTR) continue;
-				if (errno == EAGAIN) break;
-				return -1;
-			}
-			break;
-		}
-	}
-	return 1;
-}
-
-template <class T>
-int SelectableQueue<T>::pop(std::vector<T>* data) {
-	uint64_t cnt;
-	while (1) {
-		int n = ::read(efd, &cnt, sizeof(cnt));
-		if (n < 0) {
-			if (errno == EINTR) continue;
-			if (errno == EAGAIN) break;
-			return -1;
-		}
-		break;
-	}
-	if (pthread_mutex_lock(&mutex) != 0) {
-		return -1;
-	}
-	data->reserve(items.size());
-	while (!items.empty()) {
-		data->emplace_back(std::move(items.front()));
-		items.pop();
-	}
-	pthread_mutex_unlock(&mutex);
-	return 1;
-}
-
-
 template<class W, class JOB>
 WorkerPool<W, JOB>::WorkerPool(const char* name) {
 	pthread_mutex_init(&mutex, NULL);
@@ -282,19 +194,14 @@ WorkerPool<W, JOB>::~WorkerPool() {
 }
 
 template<class W, class JOB>
-void WorkerPool<W, JOB>::push(JOB job) {
-	jobs.push(job);
+void WorkerPool<W, JOB>::push(JOB& job) {
+	jobs.push(std::move(job));
 	pthread_mutex_lock(&mutex);
 	bool need_wake = (pending_work == 0);
 	pending_work = 1;
 	if (need_wake)
 		futex_wake(&pending_work, 1);
 	pthread_mutex_unlock(&mutex);
-}
-
-template<class W, class JOB>
-int WorkerPool<W, JOB>::pop(std::vector<JOB>* job) {
-	return results.pop(job);
 }
 
 template<class W, class JOB>
@@ -323,11 +230,7 @@ void* WorkerPool<W, JOB>::_run_worker(void* arg) {
 		pthread_mutex_unlock(&tp->mutex);
 		JOB job;
 		while (tp->jobs.pop(&job)) {
-			worker->proc(job);
-			if (tp->results.push(job) == -1) {
-				exit(0);
-				break;
-			}
+			worker->proc(&job);
 		}
 	}
 	worker->destroy();

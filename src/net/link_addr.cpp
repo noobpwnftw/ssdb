@@ -2,8 +2,13 @@
 #include <stdio.h>
 #include "link_addr.h"
 
-LinkAddr::LinkAddr(bool is_ipv4){
-	if(is_ipv4){
+LinkAddr::LinkAddr(short in_family, bool is_ipv4){
+	if(in_family == AF_UNIX){
+		ipv4 = true;
+		family = AF_UNIX;
+		addrlen = sizeof(addr_un);
+	}
+	else if(is_ipv4){
 		ipv4 = true;
 		family = AF_INET;
 		addrlen = sizeof(addr4);
@@ -14,8 +19,16 @@ LinkAddr::LinkAddr(bool is_ipv4){
 	}
 }
 
-LinkAddr::LinkAddr(const char *ip, int port){
-	if(strchr(ip, ':') == NULL){
+LinkAddr::LinkAddr(short in_family, const char *ip, int port){
+	if(in_family == AF_UNIX){
+		ipv4 = true;
+		family = AF_UNIX;
+		addrlen = sizeof(addr_un);
+		bzero(&addr_un, sizeof(addr_un));
+		addr_un.sun_family = family;
+		strncpy(addr_un.sun_path, ip, sizeof(addr_un.sun_path) - 1);
+	}
+	else if(strchr(ip, ':') == NULL){
 		ipv4 = true;
 		family = AF_INET;
 		addrlen = sizeof(addr4);

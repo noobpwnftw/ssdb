@@ -26,15 +26,13 @@ class NetworkServer
 {
 private:
 	Link* accept_link(Link *serv_link);
-	int proc_result(Fdevents *fdes, ProcJob *job, ready_list_t *ready_list);
-	int proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_list_t *ready_list);
-	int proc(ProcWorkerPool *workers, ProcJob *job);
+	void proc_result(Fdevents *fdes, ProcJob *job, Link* link, ready_list_t *ready_list);
+	void proc_client_event(Fdevents *fdes, const Fdevent *fde, ready_list_t *ready_list);
+	int proc(ProcJob *job, Link* link);
 
-	Link *serv_link;
 	ProcWorkerPool *workers;
 	bool readonly;
-	const char *ip;
-	int port;
+	const char *sock_path;
 
 protected:
 	void usage(int argc, char **argv);
@@ -48,7 +46,10 @@ public:
 	int link_count;
 	IpFilter *ip_filter;
 	bool need_auth;
-    std::set<std::string> passwords;
+	std::set<std::string> passwords;
+	const char *ip;
+	int port;
+	Link* serv_sock;
 };
 
 

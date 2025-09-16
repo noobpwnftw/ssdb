@@ -10,7 +10,7 @@ found in the LICENSE file.
 #include "util/app.h"
 #include "serv.h"
 
-#define SERVE_THREADS 8
+#define SERVE_THREADS 16
 
 #define APP_NAME "ssdb-server"
 #define APP_VERSION SSDB_VERSION

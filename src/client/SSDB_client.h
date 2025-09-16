@@ -92,8 +92,6 @@ public:
 	/// @}
 	
 	virtual Status dbsize(int64_t *ret) = 0;
-	virtual Status get_kv_range(std::string *start, std::string *end) = 0;
-	virtual Status set_kv_range(const std::string &start, const std::string &end) = 0;
 
 	/// @name KV methods
 	/// @{

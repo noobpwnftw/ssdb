@@ -43,10 +43,6 @@ int Fdevents::set(int fd, int flags, int data_num, void *data_ptr){
 	if(fde->s_flags & FDEVENT_IN)  epe.events |= EPOLLIN;
 	if(fde->s_flags & FDEVENT_OUT) epe.events |= EPOLLOUT;
 
-#if defined(EPOLLEXCLUSIVE)
-	if(ctl_op == EPOLL_CTL_ADD && (fde->s_flags & FDEVENT_EXCL)) epe.events |= EPOLLEXCLUSIVE;
-#endif
-
 	int ret = epoll_ctl(ep_fd, ctl_op, fd, &epe);
 	if(ret == -1){
 		return -1;

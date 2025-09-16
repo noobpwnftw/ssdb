@@ -224,6 +224,8 @@ int main(int argc, char **argv){
 	options.bottommost_compression = TERARKDB_NAMESPACE::kZSTD;
 	options.memtable_factory.reset(TERARKDB_NAMESPACE::NewPatriciaTrieRepFactory());
 	options.stats_dump_period_sec = 0;
+	options.delete_obsolete_files_period_micros = 0;
+	options.max_manifest_file_size = 0;
 	options.blob_size = -1;
 
 	options.level0_file_num_compaction_trigger = -1;

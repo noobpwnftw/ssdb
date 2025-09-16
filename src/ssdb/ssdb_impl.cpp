@@ -49,6 +49,8 @@ SSDB* SSDB::open(const Options &opt, const std::string &dir){
 	ssdb->options.memtable_factory.reset(TERARKDB_NAMESPACE::NewPatriciaTrieRepFactory());
 	ssdb->options.enable_pipelined_write = true;
 	ssdb->options.stats_dump_period_sec = 0;
+	ssdb->options.delete_obsolete_files_period_micros = 0;
+	ssdb->options.max_manifest_file_size = 0;
 	ssdb->options.blob_size = -1;
 
 	if(opt.compression){
