@@ -19,8 +19,10 @@ found in the LICENSE file.
 class Link{
 	private:
 		int sock;
+		uint64_t generation;
 		bool noblock_;
 		bool error_;
+		short family;
 		bool ipv4;
 		std::vector<Bytes> recv_data;
 
@@ -32,13 +34,9 @@ class Link{
 		int remote_port;
 
 		bool auth;
-		bool ignore_key_range;
 
 		Buffer *input;
 		Buffer *output;
-		
-		double create_time;
-		double active_time;
 
 		Link(bool is_server=false);
 		~Link();
@@ -52,6 +50,9 @@ class Link{
 		int fd() const{
 			return sock;
 		}
+		uint64_t gen() const{
+			return generation;
+		}
 		bool error() const{
 			return error_;
 		}
@@ -60,7 +61,7 @@ class Link{
 		}
 
 		static Link* connect(const char *ip, int port);
-		static Link* listen(const char *ip, int port);
+		static Link* listen(short family, const char *ip, int port);
 		Link* accept();
 
 		// read network data info buffer

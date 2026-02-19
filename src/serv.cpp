@@ -15,57 +15,57 @@ found in the LICENSE file.
 #include "proc_zset.h"
 #include "proc_queue.h"
 
-#define REG_PROC(c, f)     net->proc_map.set_proc(#c, f, proc_##c)
+#define REG_PROC(c, f)     net->proc_map.set_proc(#c, f, (void*)proc_##c)
 
 void SSDBServer::reg_procs(NetworkServer *net){
-	REG_PROC(get, "rt");
-	REG_PROC(set, "wt");
-	REG_PROC(del, "wt");
-	REG_PROC(setx, "wt");
-	REG_PROC(setnx, "wt");
-	REG_PROC(getset, "wt");
-	REG_PROC(getbit, "rt");
-	REG_PROC(setbit, "wt");
-	REG_PROC(countbit, "rt");
-	REG_PROC(substr, "rt");
-	REG_PROC(getrange, "rt");
-	REG_PROC(strlen, "rt");
-	REG_PROC(bitcount, "rt");
-	REG_PROC(incr, "wt");
-	REG_PROC(decr, "wt");
+	REG_PROC(get, "r");
+	REG_PROC(set, "w");
+	REG_PROC(del, "w");
+	REG_PROC(setx, "w");
+	REG_PROC(setnx, "wb");
+	REG_PROC(getset, "wb");
+	REG_PROC(getbit, "r");
+	REG_PROC(setbit, "wb");
+	REG_PROC(countbit, "r");
+	REG_PROC(substr, "r");
+	REG_PROC(getrange, "r");
+	REG_PROC(strlen, "r");
+	REG_PROC(bitcount, "r");
+	REG_PROC(incr, "wb");
+	REG_PROC(decr, "wb");
 	REG_PROC(scan, "rt");
 	REG_PROC(rscan, "rt");
 	REG_PROC(keys, "rt");
 	REG_PROC(rkeys, "rt");
-	REG_PROC(exists, "rt");
+	REG_PROC(exists, "r");
 	REG_PROC(multi_exists, "rt");
 	REG_PROC(multi_get, "rt");
-	REG_PROC(multi_set, "wt");
-	REG_PROC(multi_del, "wt");
-	REG_PROC(ttl, "rt");
-	REG_PROC(expire, "wt");
+	REG_PROC(multi_set, "w");
+	REG_PROC(multi_del, "w");
+	REG_PROC(ttl, "r");
+	REG_PROC(expire, "w");
 
-	REG_PROC(hsize, "rt");
-	REG_PROC(hget, "rt");
-	REG_PROC(hset, "wt");
-	REG_PROC(hdel, "wt");
-	REG_PROC(hincr, "wt");
-	REG_PROC(hdecr, "wt");
-	REG_PROC(hclear, "wt");
-	REG_PROC(hgetall, "rt");
-	REG_PROC(hscan, "rt");
-	REG_PROC(hrscan, "rt");
-	REG_PROC(hkeys, "rt");
-	REG_PROC(hvals, "rt");
+	REG_PROC(hsize, "r");
+	REG_PROC(hget, "r");
+	REG_PROC(hset, "w");
+	REG_PROC(hdel, "wb");
+	REG_PROC(hincr, "wb");
+	REG_PROC(hdecr, "wb");
+	REG_PROC(hclear, "w");
+	REG_PROC(hgetall, "r");
+	REG_PROC(hscan, "r");
+	REG_PROC(hrscan, "r");
+	REG_PROC(hkeys, "r");
+	REG_PROC(hvals, "r");
 	REG_PROC(hlist, "rt");
 	REG_PROC(hrlist, "rt");
-	REG_PROC(hexists, "rt");
+	REG_PROC(hexists, "r");
 	REG_PROC(multi_hexists, "rt");
 	REG_PROC(multi_hsize, "rt");
 	REG_PROC(multi_hget, "rt");
-	REG_PROC(multi_hset, "wt");
-	REG_PROC(multi_hdel, "wt");
-	REG_PROC(hfix, "wt");
+	REG_PROC(multi_hset, "w");
+	REG_PROC(multi_hdel, "wb");
+	REG_PROC(migrate_hset, "w");
 
 	// because zrank may be extremly slow, execute in a seperate thread
 	REG_PROC(zrank, "rt");
@@ -74,14 +74,14 @@ void SSDBServer::reg_procs(NetworkServer *net){
 	REG_PROC(zrrange, "rt");
 	REG_PROC(redis_zrange, "rt");
 	REG_PROC(redis_zrrange, "rt");
-	REG_PROC(zsize, "rt");
-	REG_PROC(zget, "rt");
-	REG_PROC(zset, "wt");
-	REG_PROC(zdel, "wt");
-	REG_PROC(zincr, "wt");
-	REG_PROC(zdecr, "wt");
-	REG_PROC(zclear, "wt");
-	REG_PROC(zfix, "wt");
+	REG_PROC(zsize, "r");
+	REG_PROC(zget, "r");
+	REG_PROC(zset, "wb");
+	REG_PROC(zdel, "wb");
+	REG_PROC(zincr, "wb");
+	REG_PROC(zdecr, "wb");
+	REG_PROC(zclear, "wb");
+	REG_PROC(zfix, "wb");
 	REG_PROC(zscan, "rt");
 	REG_PROC(zrscan, "rt");
 	REG_PROC(zkeys, "rt");
@@ -90,54 +90,46 @@ void SSDBServer::reg_procs(NetworkServer *net){
 	REG_PROC(zcount, "rt");
 	REG_PROC(zsum, "rt");
 	REG_PROC(zavg, "rt");
-	REG_PROC(zremrangebyrank, "wt");
-	REG_PROC(zremrangebyscore, "wt");
-	REG_PROC(zexists, "rt");
+	REG_PROC(zremrangebyrank, "wb");
+	REG_PROC(zremrangebyscore, "wb");
+	REG_PROC(zexists, "r");
 	REG_PROC(multi_zexists, "rt");
 	REG_PROC(multi_zsize, "rt");
 	REG_PROC(multi_zget, "rt");
-	REG_PROC(multi_zset, "wt");
-	REG_PROC(multi_zdel, "wt");
-	REG_PROC(zpop_front, "wt");
-	REG_PROC(zpop_back, "wt");
+	REG_PROC(multi_zset, "wb");
+	REG_PROC(multi_zdel, "wb");
+	REG_PROC(zpop_front, "wb");
+	REG_PROC(zpop_back, "wb");
 
-	REG_PROC(qsize, "rt");
-	REG_PROC(qfront, "rt");
-	REG_PROC(qback, "rt");
-	REG_PROC(qpush, "wt");
-	REG_PROC(qpush_front, "wt");
-	REG_PROC(qpush_back, "wt");
-	REG_PROC(qpop, "wt");
-	REG_PROC(qpop_front, "wt");
-	REG_PROC(qpop_back, "wt");
-	REG_PROC(qtrim_front, "wt");
-	REG_PROC(qtrim_back, "wt");
-	REG_PROC(qfix, "wt");
-	REG_PROC(qclear, "wt");
+	REG_PROC(qsize, "r");
+	REG_PROC(qfront, "r");
+	REG_PROC(qback, "r");
+	REG_PROC(qpush, "wb");
+	REG_PROC(qpush_front, "wb");
+	REG_PROC(qpush_back, "wb");
+	REG_PROC(qpop, "wb");
+	REG_PROC(qpop_front, "wb");
+	REG_PROC(qpop_back, "wb");
+	REG_PROC(qtrim_front, "wb");
+	REG_PROC(qtrim_back, "wb");
+	REG_PROC(qfix, "wb");
+	REG_PROC(qclear, "wb");
 	REG_PROC(qlist, "rt");
 	REG_PROC(qrlist, "rt");
 	REG_PROC(qslice, "rt");
 	REG_PROC(qrange, "rt");
-	REG_PROC(qget, "rt");
-	REG_PROC(qset, "wt");
+	REG_PROC(qget, "r");
+	REG_PROC(qset, "wb");
 
-	REG_PROC(clear_binlog, "wt");
-	REG_PROC(flushdb, "wt");
+	REG_PROC(clear_binlog, "wb");
+	REG_PROC(flushdb, "wb");
 
-	REG_PROC(dump, "b");
-	REG_PROC(sync140, "b");
-	REG_PROC(slaveof, "w");
-	REG_PROC(info, "rt");
+	REG_PROC(dump, "p");
+	REG_PROC(sync140, "p");
+	REG_PROC(info, "r");
 	REG_PROC(version, "r");
-	REG_PROC(dbsize, "rt");
-	// doing compaction in a reader thread, because we have only one
-	// writer thread(for performance reason); we don't want to block writes
+	REG_PROC(dbsize, "r");
 	REG_PROC(compact, "rt");
-
-	REG_PROC(ignore_key_range, "r");
-	REG_PROC(get_key_range, "r");
-	REG_PROC(get_kv_range, "r");
-	REG_PROC(set_kv_range, "r");
 }
 
 
@@ -189,17 +181,6 @@ SSDBServer::SSDBServer(SSDB *ssdb, SSDB *meta, const Config &conf, NetworkServer
 			}
 		}
 	}
-
-	// load kv_range
-	int ret = this->get_kv_range(&this->kv_range_s, &this->kv_range_e);
-	if(ret == -1){
-		log_fatal("load key_range failed!");
-		exit(1);
-	}
-	log_info("key_range.kv: \"%s\", \"%s\"",
-		str_escape(this->kv_range_s).c_str(),
-		str_escape(this->kv_range_e).c_str()
-		);
 }
 
 SSDBServer::~SSDBServer(){
@@ -232,45 +213,3 @@ int SSDBServer::slaveof(const std::string &id, const std::string &host, int port
 	slaves.push_back(slave);
 	return 0;
 }
-
-int SSDBServer::set_kv_range(const std::string &start, const std::string &end){
-	if(meta->hset("key_range", "kv_s", start) == -1){
-		return -1;
-	}
-	if(meta->hset("key_range", "kv_e", end) == -1){
-		return -1;
-	}
-
-	kv_range_s = start;
-	kv_range_e = end;
-	return 0;
-}
-
-int SSDBServer::get_kv_range(std::string *start, std::string *end){
-	if(meta->hget("key_range", "kv_s", start) == -1){
-		return -1;
-	}
-	if(meta->hget("key_range", "kv_e", end) == -1){
-		return -1;
-	}
-	return 0;
-}
-
-bool SSDBServer::in_kv_range(const Bytes &key){
-	if((this->kv_range_s.size() && this->kv_range_s >= key)
-		|| (this->kv_range_e.size() && this->kv_range_e < key))
-	{
-		return false;
-	}
-	return true;
-}
-
-bool SSDBServer::in_kv_range(const std::string &key){
-	if((this->kv_range_s.size() && this->kv_range_s >= key)
-		|| (this->kv_range_e.size() && this->kv_range_e < key))
-	{
-		return false;
-	}
-	return true;
-}
-

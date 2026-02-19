@@ -8,7 +8,7 @@
 #include <inttypes.h>
 #include <string>
 #include <vector>
-#include <map>
+#include <unordered_map>
 
 namespace ssdb{
 
@@ -92,8 +92,6 @@ public:
 	/// @}
 	
 	virtual Status dbsize(int64_t *ret) = 0;
-	virtual Status get_kv_range(std::string *start, std::string *end) = 0;
-	virtual Status set_kv_range(const std::string &start, const std::string &end) = 0;
 
 	/// @name KV methods
 	/// @{
@@ -128,13 +126,14 @@ public:
 	 * The two elements at ret[n] and ret[n+1] form a key-value pair, n=0,2,4,...
 	 */
 	virtual Status multi_get(const std::vector<std::string> &keys, std::vector<std::string> *vals) = 0;
-	virtual Status multi_set(const std::map<std::string, std::string> &kvs) = 0;
+	virtual Status multi_set(const std::unordered_map<std::string, std::string> &kvs) = 0;
 	virtual Status multi_del(const std::vector<std::string> &keys) = 0;
 	/// @}
 
 
 	/// @name Map(Hash) methods
 	/// @{
+	virtual Status migrate_hset(const std::vector<std::string> &items) = 0;
 	virtual Status hget(const std::string &name, const std::string &key, std::string *val) = 0;
 	virtual Status hset(const std::string &name, const std::string &key, const std::string &val) = 0;
 	virtual Status hdel(const std::string &name, const std::string &key) = 0;
@@ -176,7 +175,7 @@ public:
 	 */
 	virtual Status multi_hget(const std::string &name, const std::vector<std::string> &keys,
 		std::vector<std::string> *ret) = 0;
-	virtual Status multi_hset(const std::string &name, const std::map<std::string, std::string> &kvs) = 0;
+	virtual Status multi_hset(const std::string &name, const std::unordered_map<std::string, std::string> &kvs) = 0;
 	virtual Status multi_hdel(const std::string &name, const std::vector<std::string> &keys) = 0;
 	/// @}
 
@@ -239,7 +238,7 @@ public:
 	 */
 	virtual Status multi_zget(const std::string &name, const std::vector<std::string> &keys,
 		std::vector<std::string> *scores) = 0;
-	virtual Status multi_zset(const std::string &name, const std::map<std::string, int64_t> &kss) = 0;
+	virtual Status multi_zset(const std::string &name, const std::unordered_map<std::string, int64_t> &kss) = 0;
 	virtual Status multi_zdel(const std::string &name, const std::vector<std::string> &keys) = 0;
 	/// @}
 

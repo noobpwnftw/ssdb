@@ -6,7 +6,7 @@ LIBS = ../util/libutil.a
 
 
 all: ssdb.h ${OBJS}
-	ar -cru ./libssdb.a ${OBJS}
+	${AR} -cru ./libssdb.a ${OBJS}
 
 ssdb_impl.o: ssdb.h ssdb_impl.h ssdb_impl.cpp
 	${CXX} ${CFLAGS} -c ssdb_impl.cpp

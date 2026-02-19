@@ -10,15 +10,33 @@ found in the LICENSE file.
 #include "../util/thread.h"
 #include "proc.h"
 
-// WARN: pipe latency is about 20 us, it is really slow!
-class ProcWorker : public WorkerPool<ProcWorker, ProcJob *>::Worker{
+struct ProcJob{
+	int result;
+	NetworkServer *serv;
+	int fd;
+	uint64_t gen;
+	Command *cmd;
+
+	const Request *req;
+	Response resp;
+	Queue<ProcJob, (1 << 16)>* wq;
+	int efd;
+	void enqueue_write() {
+		wq->push(std::move(*this));
+		uint64_t one = 1; ::write(efd, &one, sizeof(one));
+	}
+};
+
+typedef Queue<ProcJob, (1 << 16)> WriteQueue;
+
+class ProcWorker : public WorkerPool<ProcWorker, ProcJob>::Worker{
 public:
 	ProcWorker(const std::string &name);
 	~ProcWorker(){}
 	void init();
-	int proc(ProcJob *job);
+	void proc(ProcJob* job);
 };
 
-typedef WorkerPool<ProcWorker, ProcJob *> ProcWorkerPool;
+typedef WorkerPool<ProcWorker, ProcJob> ProcWorkerPool;
 
 #endif

@@ -1,29 +1,52 @@
-// this is only a demo, DO NOT use
+
+#include <time.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#include <thread>
 #include <vector>
+#include "rocksdb/db.h"
 #include "util/log.h"
 #include "util/string_util.h"
-#include "SSDB_client.h"
+#include "../src/client/SSDB_client.h"
+#include "../src/net/link.h"
+#include "../src/ssdb/const.h"
+#include "block-queue.h"
 
-#define BATCH_SIZE 100
+// per Data (with chess data) is about 50+byte,
+// kQueueHardLimit = 10M ~ (1.5G RAM)
+static const int kQueueHardLimit = 1 * 1000 * 1000;
+static const int kBatchSize = 100;
+
+struct Data {
+	std::string key;
+	std::string field;
+	std::string value;
+	Data() {
+		key.clear();
+	}
+};
 
 ssdb::Client *src = NULL;
 ssdb::Client *dst = NULL;
 
-void welcome(){
+static const int kThreads = 8;
+std::vector<ssdb::Client*> clients;
+std::vector<std::thread> threads;
+BlockQueue<Data> dqueue;
+
+void welcome() {
 	printf("ssdb-migrate - SSDB server migration tool\n");
 	printf("Copyright (c) 2012-2015 ssdb.io\n");
 	printf("\n");
 }
 
-void usage(int argc, char **argv){
+void usage(int argc, char **argv) {
 	printf("Usage:\n"
-		"    %s type src_ip src_port dst_ip dst_port limit\n"
+		"    %s src_ip src_port dst_ip dst_port limit\n"
 		"\n"
 		"Options:\n"
-		"    type      Supported values: KV\n"
 		"    src_ip    IP addr of the SSDB server to move data from, example: 127.0.0.1\n"
 		"    src_port  Port number of source SSDB server\n"
 		"    src_ip    IP addr of the SSDB server to move data to, example: 127.0.0.1\n"
@@ -32,13 +55,13 @@ void usage(int argc, char **argv){
 		"    -h        Show this message"
 		"\n"
 		"Example:\n"
-		"    %s KV 127.0.0.1 8887 127.0.0.1 8889 13\n"
+		"    %s 127.0.0.1 8887 127.0.0.1 8889 13\n"
 		"\n",
 		argv[0], argv[0]);
-	exit(1);   
+	exit(1);
 }
 
-struct AppArgs{
+struct AppArgs {
 	std::string type;
 	std::string src_ip;
 	int src_port;
@@ -47,238 +70,206 @@ struct AppArgs{
 	int limit;
 };
 
-void parse_args(AppArgs *args, int argc, char **argv){
-	if(argc < 7){
+void parse_args(AppArgs *args, int argc, char **argv) {
+	if (argc < 6) {
 		usage(argc, argv);
 	}
-	for(int i=1; i<argc; i++){
-		if(std::string("-h") == argv[i]){
+	for (int i = 1; i < argc; i++) {
+		if (std::string("-h") == argv[i]) {
 			usage(argc, argv);
 		}
-		if(argv[i][0] == '-'){
-			fprintf(stderr, "ERROR: Invalid argument: %s!\n", argv[i]);
-			exit(1);   
+		/*if (argv[i][0] == '-') {
+		  fprintf(stderr, "ERROR: Invalid argument: %s!\n", argv[i]);
+		  exit(1);
+		  }*/
+	}
+	args->src_ip = argv[1];
+	args->src_port = str_to_int(argv[2]);
+	args->dst_ip = argv[3];
+	args->dst_port = str_to_int(argv[4]);
+	args->limit = str_to_int(argv[5]);
+	/*if(args->limit <= 0){
+	  fprintf(stderr, "ERROR: invalid limit option!\n");
+	  exit(1);
+	  }*/
+}
+
+void send_req(int tid) {
+	std::vector<std::string> items;
+	while (true) {
+		Data data = dqueue.pop();
+		if (!data.key.empty()) {
+			items.push_back(data.key);
+			items.push_back(data.field);
+			items.push_back(data.value);
+		}
+		if (data.key.empty() || items.size() >= kBatchSize) { // end signal
+			if (items.empty()) {
+				break;
+			}
+			ssdb::Status s = clients[tid]->migrate_hset(items);
+			if (!s.ok()) {
+				log_error("dst hset error! %s", s.code().c_str());
+				printf("dst hset error! %s", s.code().c_str());
+				exit(1);
+			}
+			if (data.key.empty()) {
+				break;
+			}
+			items.clear();
 		}
 	}
-	args->type = argv[1];
-	args->src_ip = argv[2];
-	args->src_port = str_to_int(argv[3]);
-	args->dst_ip = argv[4];
-	args->dst_port = str_to_int(argv[5]);
-	args->limit = str_to_int(argv[6]);
-	if(args->type != "KV"){
-		fprintf(stderr, "ERROR: only type of KV is supported!\n");
-		exit(1);   
-	}
-	if(args->limit <= 0){
-		fprintf(stderr, "ERROR: invalid limit option!\n");
-		exit(1);   
-	}
 }
 
-struct KeyRange{
-	std::string start;
-	std::string end;
-	
-	KeyRange(){
-	}
-	
-	KeyRange(const std::string &start, const std::string &end){
-		this->start = start;
-		this->end = end;
-	}
-	
-	std::string str(){
-		char buf[1024];
-		snprintf(buf, sizeof(buf), "(\"%s\", \"%s\"]", str_escape(start).c_str(), str_escape(end).c_str());
-		return std::string(buf);
-	}
-};
-
-int move_key(const std::string &key){
-	std::string val;
-	ssdb::Status s;
-	s = src->get(key, &val);
-	if(s.not_found()){
-		return 0;
-	}
-	if(!s.ok()){
-		log_error("src server error! %s", s.code().c_str());
-		return -1;
-	}
-	s = dst->set(key, val);
-	if(!s.ok()){
-		log_error("dst server error! %s", s.code().c_str());
-		return -1;
-	}
-	s = src->del(key);
-	if(!s.ok()){
-		log_error("src server error! %s", s.code().c_str());
-		return -1;
-	}
-	return 1;
-}
-
-int move_range(const std::string &min_key, const std::string &max_key, int limit, std::string *moved_max_key){
-	// get key range
-	std::vector<std::string> keys;
-	ssdb::Status s;
-	s = src->keys(min_key, max_key, limit, &keys);
-	if(!s.ok()){
-		log_error("response error: %s", s.code().c_str());
-		return -1;
-	}
-	if(keys.empty()){
-		return 0;
-	}
-	if(moved_max_key){
-		*moved_max_key = keys[keys.size() - 1];
-
-		// lock key range
-		log_info("lock range %s", KeyRange(min_key, *moved_max_key).str().c_str());
-		const std::vector<std::string>* resp;
-		resp = src->request("set_kv_range", *moved_max_key, max_key);
-		if(!resp || resp->empty() || resp->at(0) != "ok"){
-			log_error("src server set_kv_range error!");
-			return -1;
+bool init_client(const std::string &ip, int port) {
+	for (int i = 0; i < kThreads; i++) {
+		ssdb::Client *client = ssdb::Client::connect(ip, port);
+		if (client == NULL) {
+			log_error("fail to connect to server!");
+			return false;
 		}
+		clients.push_back(client);
 	}
-
-	// move key range
-	for(int i=0; i<(int)keys.size(); i++){
-		const std::string &key = keys[i];
-		if(move_key(key) == -1){
-			log_fatal("move key %s error! %s", key.c_str(), s.code().c_str());
-			exit(1);   
-		}
+	// Launch a group of threads
+	for (int i = 0; i < kThreads; ++i) {
+		threads.push_back(std::thread(send_req, i));
 	}
-	
-	return (int)keys.size();
+	return true;
 }
 
-ssdb::Client* init_client(const std::string &ip, int port){
-	ssdb::Client *client = ssdb::Client::connect(ip, port);
-	if(client == NULL){
-		log_error("fail to connect to server!");
-		return NULL;
-	}
-
-	const std::vector<std::string>* resp;
-	resp = client->request("ignore_key_range");
-	if(!resp || resp->empty() || resp->at(0) != "ok"){
-		log_error("src server ignore_key_range error!");
-		delete client;
-		return NULL;
-	}
-	return client;
-}
-
-int get_key_range(ssdb::Client *client, KeyRange *range){
-	const std::vector<std::string>* resp;
-	resp = client->request("get_kv_range");
-	if(!resp || resp->size() < 3 || resp->at(0) != "ok"){
-		log_error("get_kv_range error!");
-		return -1;
-	}
-	range->start = resp->at(1);
-	range->end = resp->at(2);
-	return 0;
-}
-
-int set_key_range(ssdb::Client *client, const KeyRange &range){
-	const std::vector<std::string>* resp;
-	resp = client->request("set_kv_range", range.start, range.end);
-	if(!resp || resp->empty() || resp->at(0) != "ok"){
-		log_error("server set_kv_range error!");
-		return -1;
-	}
-	return 0;
-}
-
-void check_version(ssdb::Client *client){
-	const std::vector<std::string>* resp;
-	resp = client->request("version");
-	if(!resp || resp->size() < 2 || resp->at(0) != "ok"){
-		fprintf(stderr, "ERROR: ssdb-server 1.9.0 or higher is required!\n");
-		exit(1);
-	}
-}
-
-int main(int argc, char **argv){
+int main(int argc, char **argv) {
 	welcome();
+	set_log_level(Logger::LEVEL_MIN);
+
 	AppArgs args;
 	parse_args(&args, argc, argv);
 
-	src = init_client(args.src_ip, args.src_port);
-	if(src == NULL){
+	// connect to src server
+	Link *link = Link::connect(args.src_ip.c_str(), args.src_port);
+	if (link == NULL) {
+		fprintf(stderr, "ERROR: error connecting to src server: %s:%d!\n",
+			args.src_ip.c_str(), args.src_port);
+		exit(1);
+	}
+	// connect to dst server
+	if (!init_client(args.dst_ip, args.dst_port)) {
 		log_error("fail to connect to server!");
 		return 0;
 	}
-	dst = init_client(args.dst_ip, args.dst_port);
-	if(dst == NULL){
-		log_error("fail to connect to server!");
-		return 0;
-	}
-	check_version(src);
-	check_version(dst);
-	
-	KeyRange src_range;
-	if(get_key_range(src, &src_range) == -1){
-		return -1;
-	}
-	log_info("old src %s", src_range.str().c_str());
-	
-	KeyRange dst_range;
-	if(get_key_range(dst, &dst_range) == -1){
-		return -1;
-	}
-	log_info("old dst %s", dst_range.str().c_str());
+	printf("after connect\n");
+	// start transfer
+	link->send("dump", "A", "", "-1");
+	link->flush();
 
-	for(int i=0; i<args.limit; i+=BATCH_SIZE){
-		int num = BATCH_SIZE;
-		if(args.limit - i < BATCH_SIZE){
-			num = args.limit - i;
+	time_t stime;
+	time(&stime);
+	int64_t dump_count = 0;
+	while (1) {
+		const std::vector<Bytes> *req = link->recv();
+		if (req == NULL) {
+			fprintf(stderr, "recv error\n");
+			fprintf(stderr, "ERROR: failed to dump data!\n");
+			exit(1);
 		}
-		
-		// move data
-		int ret;
-		std::string moved_max_key;
-		ret = move_range(src_range.start, src_range.end, num, &moved_max_key);
-		if(ret == -1){
-			log_fatal("move_range error!");
-			exit(1);   
-		}
-		if(ret == 0){
-			continue;
-		}
-		log_debug("moved %d key(s)", ret);
-		while(ret == num){
-			// check again, make sure there is not key inserted before we lock range
-			ret = move_range(src_range.start, moved_max_key, num, NULL);
-			if(ret == -1){
-				log_fatal("move_range error!");
-				exit(1);   
+		else if (req->empty()) {
+			int len = link->read();
+			if (len <= 0) {
+				fprintf(stderr, "read error: %s\n", strerror(errno));
+				fprintf(stderr, "ERROR: failed to dump data!\n");
+				exit(1);
 			}
 		}
-	
-		KeyRange new_src_range(moved_max_key, src_range.end);
-		KeyRange new_dst_range(dst_range.start, moved_max_key);
-	
-		log_info("src %s => %s", src_range.str().c_str(), new_src_range.str().c_str());
-		log_info("dst %s => %s", dst_range.str().c_str(), new_dst_range.str().c_str());
-	
-		// update key range
-		if(set_key_range(src, new_src_range) == -1){
-			log_fatal("src server set_kv_range error!");
-			exit(1);   
-		}
-		if(set_key_range(dst, new_dst_range) == -1){
-			log_fatal("dst server set_kv_range error!");
-			exit(1);   
+		else {
+			Bytes cmd = req->at(0);
+			if (cmd == "begin") {
+				printf("recv begin...\n");
+			}
+			else if (cmd == "end") {
+				printf("received %" PRId64 " entry(s)\n", dump_count);
+				printf("recv end\n\n");
+				break;
+			}
+			else if (cmd == "set") {
+				if (req->size() != 3) {
+					fprintf(stderr, "invalid set params!\n");
+					fprintf(stderr, "ERROR: failed to dump data!\n");
+					exit(1);
+				}
+				Bytes key = req->at(1);
+				Bytes val = req->at(2);
+				if (key.size() == 0 || key.data()[0] == DataType::SYNCLOG) {
+					continue;
+				}
+
+				if (key.data()[0] != 'h') { // only support hset right now
+					continue;
+				}
+				int keysize = key.data()[1];
+				Bytes hkey(key.data() + 2, key.size() - 2); // skip 'h' & 'key length'
+				if (hkey.data()[keysize] != '=') {
+					printf("invalid key\n");
+					continue;
+				}
+				Data data;
+				data.key = std::string(hkey.data(), keysize);
+				data.field = std::string(hkey.data() + keysize + 1, hkey.size() - keysize - 1);
+				data.value = std::string(val.data(), val.size());
+
+				if (dqueue.push(data) > kQueueHardLimit) {
+					usleep(1000);
+				}
+
+				dump_count++;
+				if (args.limit != -1 && dump_count >= args.limit) {
+					break;
+				}
+				if (dump_count > 0 && dump_count % 100000 == 0) {
+					printf("received %" PRId64 " entry(s)\n", dump_count);
+				}
+			}
+			else {
+				fprintf(stderr, "error: unknown command %s\n", std::string(cmd.data(), cmd.size()).c_str());
+				fprintf(stderr, "ERROR: failed to dump data!\n");
+				exit(1);
+			}
 		}
 	}
-	
-	delete src;
-	delete dst;
+	printf("total dumped %" PRId64 " entry(s)\n", dump_count);
+
+	for (int i = 0; i < kThreads; i++) {
+		dqueue.push(Data()); // end signal
+	}
+	// Join the threads with the main thread
+	for (int i = 0; i < kThreads; ++i) {
+		threads[i].join();
+	}
+
+	time_t etime;
+	time(&etime);
+	printf("stime %ld, etime %ld\n", stime, etime);
+	time_t ts = (etime == stime) ? 1 : (etime - stime);
+	double speed = (double)dump_count / ts;
+	printf("insert: %.2fk, time: %ld s\n", speed / 1000, ts);
+
+	/*
+	  {
+	  std::string val;
+	  if(db->GetProperty("rocksdb.stats", &val)){
+	  printf("%s\n", val.c_str());
+	  }
+	  }
+
+	  printf("compacting data...\n");
+	  db->CompactRange(TERARKDB_NAMESPACE::CompactRangeOptions(), nullptr, nullptr);
+
+	  {
+	  std::string val;
+	  if(db->GetProperty("rocksdb.stats", &val)){
+	  printf("%s\n", val.c_str());
+	  }
+	  }
+	*/
+	delete link;
+	//delete dst;
 	return 0;
 }

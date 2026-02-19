@@ -6,18 +6,19 @@ found in the LICENSE file.
 #include "t_kv.h"
 
 int SSDBImpl::multi_set(const std::vector<Bytes> &kvs, int offset, char log_type){
-	Transaction trans(binlogs);
-
 	std::vector<Bytes>::const_iterator it;
 	it = kvs.begin() + offset;
+	Transaction trans(binlogs);
 	for(; it != kvs.end(); it += 2){
 		const Bytes &key = *it;
 		if(key.empty()){
+			binlogs->unlock();
 			log_error("empty key!");
 			return 0;
 			//return -1;
 		}
 		if(key.size() > SSDB_KEY_LEN_MAX ){
+			binlogs->unlock();
 			log_error("name too long! %s", hexmem(key.data(), key.size()).c_str());
 			return 0;
 		}
@@ -26,7 +27,7 @@ int SSDBImpl::multi_set(const std::vector<Bytes> &kvs, int offset, char log_type
 		binlogs->Put(buf, slice(val));
 		binlogs->add_log(log_type, BinlogCommand::KSET, buf);
 	}
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("multi_set error: %s", s.ToString().c_str());
 		return -1;
@@ -35,17 +36,16 @@ int SSDBImpl::multi_set(const std::vector<Bytes> &kvs, int offset, char log_type
 }
 
 int SSDBImpl::multi_del(const std::vector<Bytes> &keys, int offset, char log_type){
-	Transaction trans(binlogs);
-
 	std::vector<Bytes>::const_iterator it;
 	it = keys.begin() + offset;
+	Transaction trans(binlogs);
 	for(; it != keys.end(); it++){
 		const Bytes &key = *it;
 		std::string buf = encode_kv_key(key);
 		binlogs->Delete(buf);
 		binlogs->add_log(log_type, BinlogCommand::KDEL, buf);
 	}
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("multi_del error: %s", s.ToString().c_str());
 		return -1;
@@ -64,12 +64,11 @@ int SSDBImpl::set(const Bytes &key, const Bytes &val, char log_type){
 		return -1;
 	}
 
-	Transaction trans(binlogs);
-
 	std::string buf = encode_kv_key(key);
+	Transaction trans(binlogs);
 	binlogs->Put(buf, slice(val));
 	binlogs->add_log(log_type, BinlogCommand::KSET, buf);
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("set error: %s", s.ToString().c_str());
 		return -1;
@@ -87,17 +86,16 @@ int SSDBImpl::setnx(const Bytes &key, const Bytes &val, char log_type){
 		log_error("name too long! %s", hexmem(key.data(), key.size()).c_str());
 		return -1;
 	}
-	Transaction trans(binlogs);
-
 	std::string tmp;
 	int found = this->get(key, &tmp);
 	if(found != 0){
 		return 0;
 	}
 	std::string buf = encode_kv_key(key);
+	Transaction trans(binlogs);
 	binlogs->Put(buf, slice(val));
 	binlogs->add_log(log_type, BinlogCommand::KSET, buf);
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("set error: %s", s.ToString().c_str());
 		return -1;
@@ -115,13 +113,12 @@ int SSDBImpl::getset(const Bytes &key, std::string *val, const Bytes &newval, ch
 		log_error("name too long! %s", hexmem(key.data(), key.size()).c_str());
 		return -1;
 	}
-	Transaction trans(binlogs);
-
 	int found = this->get(key, val);
 	std::string buf = encode_kv_key(key);
+	Transaction trans(binlogs);
 	binlogs->Put(buf, slice(newval));
 	binlogs->add_log(log_type, BinlogCommand::KSET, buf);
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("set error: %s", s.ToString().c_str());
 		return -1;
@@ -135,12 +132,11 @@ int SSDBImpl::del(const Bytes &key, char log_type){
 		log_error("name too long! %s", hexmem(key.data(), key.size()).c_str());
 		return -1;
 	}
-	Transaction trans(binlogs);
-
 	std::string buf = encode_kv_key(key);
+	Transaction trans(binlogs);
 	binlogs->Delete(buf);
 	binlogs->add_log(log_type, BinlogCommand::KDEL, buf);
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("del error: %s", s.ToString().c_str());
 		return -1;
@@ -153,8 +149,6 @@ int SSDBImpl::incr(const Bytes &key, int64_t by, int64_t *new_val, char log_type
 		log_error("name too long! %s", hexmem(key.data(), key.size()).c_str());
 		return -1;
 	}
-	Transaction trans(binlogs);
-
 	std::string old;
 	int ret = this->get(key, &old);
 	if(ret == -1){
@@ -167,12 +161,11 @@ int SSDBImpl::incr(const Bytes &key, int64_t by, int64_t *new_val, char log_type
 			return 0;
 		}
 	}
-
 	std::string buf = encode_kv_key(key);
+	Transaction trans(binlogs);
 	binlogs->Put(buf, str(*new_val));
 	binlogs->add_log(log_type, BinlogCommand::KSET, buf);
-
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("del error: %s", s.ToString().c_str());
 		return -1;
@@ -183,11 +176,10 @@ int SSDBImpl::incr(const Bytes &key, int64_t by, int64_t *new_val, char log_type
 int SSDBImpl::get(const Bytes &key, std::string *val){
 	std::string buf = encode_kv_key(key);
 
-	leveldb::Status s = ldb->Get(leveldb::ReadOptions(), buf, val);
+	TERARKDB_NAMESPACE::Status s = ldb->Get(read_opts, buf, val);
 	if(s.IsNotFound()){
 		return 0;
-	}
-	if(!s.ok()){
+	}else if(!s.ok()){
 		log_error("get error: %s", s.ToString().c_str());
 		return -1;
 	}
@@ -233,14 +225,11 @@ int SSDBImpl::setbit(const Bytes &key, int bitoffset, int on, char log_type){
 		log_error("name too long! %s", hexmem(key.data(), key.size()).c_str());
 		return -1;
 	}
-	Transaction trans(binlogs);
-	
 	std::string val;
 	int ret = this->get(key, &val);
 	if(ret == -1){
 		return -1;
 	}
-	
 	int len = bitoffset / 8;
 	// Bit Numbering: MSB 0
 	int bit = 7 - bitoffset % 8;
@@ -255,9 +244,10 @@ int SSDBImpl::setbit(const Bytes &key, int bitoffset, int on, char log_type){
 	}
 
 	std::string buf = encode_kv_key(key);
+	Transaction trans(binlogs);
 	binlogs->Put(buf, val);
 	binlogs->add_log(log_type, BinlogCommand::KSET, buf);
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("set error: %s", s.ToString().c_str());
 		return -1;

@@ -1,4 +1,4 @@
-import thread, re, time, socket;
+import _thread, re, time, socket;
 import getopt, shlex;
 import datetime;
 import ssdb_cli.*;
@@ -239,7 +239,7 @@ while(true){
 	b = sys.stdout;
 	sys.stdout = sys.stderr;
 	try{
-		line = raw_input(c);
+		line = input(c);
 	}catch(Exception e){
 		break;
 	}
@@ -269,7 +269,7 @@ while(true){
 	}
 
 	for(i=0; i<len(ps); i++){
-		ps[i] = ps[i].decode('string-escape');
+		ps[i] = ps[i].encode().decode('unicode-escape');
 	}
 	
 	cmd = ps[0].lower();

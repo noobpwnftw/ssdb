@@ -170,24 +170,6 @@ Status ClientImpl::dbsize(int64_t *ret){
 	return _read_int64(resp, ret);
 }
 
-Status ClientImpl::get_kv_range(std::string *start, std::string *end){
-	const std::vector<std::string> *resp;
-	resp = this->request("get_kv_range");
-	Status s(resp);
-	if(s.ok()){
-		*start = resp->at(1);
-		*end = resp->at(2);
-	}
-	return s;
-}
-
-Status ClientImpl::set_kv_range(const std::string &start, const std::string &end){
-	const std::vector<std::string> *resp;
-	resp = this->request("set_kv_range", start, end);
-	Status s(resp);
-	return s;
-}
-
 /******************** KV *************************/
 
 Status ClientImpl::get(const std::string &key, std::string *val){
@@ -257,10 +239,10 @@ Status ClientImpl::multi_get(const std::vector<std::string> &keys, std::vector<s
 	return _read_list(resp, ret);
 }
 
-Status ClientImpl::multi_set(const std::map<std::string, std::string> &kvs){
+Status ClientImpl::multi_set(const std::unordered_map<std::string, std::string> &kvs){
 	const std::vector<std::string> *resp;
 	std::vector<std::string> list;
-	for(std::map<std::string, std::string>::const_iterator it = kvs.begin();
+	for(std::unordered_map<std::string, std::string>::const_iterator it = kvs.begin();
 		it != kvs.end(); ++it)
 	{
 		list.push_back(it->first);
@@ -281,6 +263,13 @@ Status ClientImpl::multi_del(const std::vector<std::string> &keys){
 
 /******************** hash *************************/
 
+Status ClientImpl::migrate_hset(const std::vector<std::string> &items) {
+	const std::vector<std::string> *resp;
+	std::vector<std::string> list(items.begin(), items.end());
+	resp = this->request("migrate_hset", list);
+	Status s(resp);
+	return s;
+}
 
 Status ClientImpl::hget(const std::string &name, const std::string &key, std::string *val){
 	const std::vector<std::string> *resp;
@@ -366,10 +355,10 @@ Status ClientImpl::multi_hget(const std::string &name, const std::vector<std::st
 	return _read_list(resp, ret);
 }
 
-Status ClientImpl::multi_hset(const std::string &name, const std::map<std::string, std::string> &kvs){
+Status ClientImpl::multi_hset(const std::string &name, const std::unordered_map<std::string, std::string> &kvs){
 	const std::vector<std::string> *resp;
 	std::vector<std::string> list;
-	for(std::map<std::string, std::string>::const_iterator it = kvs.begin();
+	for(std::unordered_map<std::string, std::string>::const_iterator it = kvs.begin();
 		it != kvs.end(); ++it)
 	{
 		list.push_back(it->first);
@@ -508,10 +497,10 @@ Status ClientImpl::multi_zget(const std::string &name, const std::vector<std::st
 	return _read_list(resp, ret);
 }
 
-Status ClientImpl::multi_zset(const std::string &name, const std::map<std::string, int64_t> &kss){
+Status ClientImpl::multi_zset(const std::string &name, const std::unordered_map<std::string, int64_t> &kss){
 	const std::vector<std::string> *resp;
 	std::vector<std::string> s_kss;
-	for(std::map<std::string, int64_t>::const_iterator it = kss.begin();
+	for(std::unordered_map<std::string, int64_t>::const_iterator it = kss.begin();
 		it != kss.end(); ++it)
 	{
 		s_kss.push_back(it->first);

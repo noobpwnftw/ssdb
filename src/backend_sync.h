@@ -9,7 +9,7 @@ found in the LICENSE file.
 #include "include.h"
 #include <vector>
 #include <string>
-#include <map>
+#include <set>
 
 #include "ssdb/ssdb_impl.h"
 #include "ssdb/binlog.h"
@@ -30,7 +30,7 @@ private:
 	volatile bool thread_quit;
 	static void* _run_thread(void *arg);
 	Mutex mutex;
-	std::map<pthread_t, Client *> workers;
+	std::set<Client *> workers;
 	SSDBImpl *ssdb;
 	int sync_speed;
 public:

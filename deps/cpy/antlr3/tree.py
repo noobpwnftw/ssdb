@@ -1062,8 +1062,8 @@ class BaseTreeAdaptor(TreeAdaptor):
 
 
     def createFromType(self, tokenType, text):
-        assert isinstance(tokenType, (int, long)), type(tokenType).__name__
-        assert isinstance(text, basestring), type(text).__name__
+        assert isinstance(tokenType, int), type(tokenType).__name__
+        assert isinstance(text, str), type(text).__name__
                           
         fromToken = self.createToken(tokenType=tokenType, text=text)
         t = self.createWithPayload(fromToken)

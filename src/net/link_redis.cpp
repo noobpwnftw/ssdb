@@ -4,7 +4,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 */
 #include "link_redis.h"
-#include <map>
+#include <unordered_map>
 
 enum REPLY{
 	REPLY_BULK = 0,
@@ -34,7 +34,7 @@ enum STRATEGY{
 };
 
 static bool inited = false;
-static std::map<std::string, RedisRequestDesc> cmd_table;
+static std::unordered_map<std::string, RedisRequestDesc> cmd_table;
 
 struct RedisCommand_raw
 {
@@ -47,6 +47,7 @@ struct RedisCommand_raw
 static RedisCommand_raw cmds_raw[] = {
 	{STRATEGY_AUTO, "auth",		"auth",			REPLY_STATUS},
 	{STRATEGY_PING, "ping",		"ping",			REPLY_STATUS},
+	{STRATEGY_AUTO, "dbsize",	"dbsize",		REPLY_INT},
 
 	{STRATEGY_AUTO, "get",		"get",			REPLY_BULK},
 	{STRATEGY_AUTO, "getset",	"getset",		REPLY_BULK},
@@ -111,16 +112,15 @@ static RedisCommand_raw cmds_raw[] = {
 	{STRATEGY_AUTO, 	"llen",			"qsize",			REPLY_INT},
 	{STRATEGY_AUTO, 	"lsize",		"qsize",			REPLY_INT},
 	{STRATEGY_AUTO,		"lindex",		"qget", 			REPLY_BULK},
-	{STRATEGY_AUTO,		"lset",		    "qset", 			REPLY_STATUS},
+	{STRATEGY_AUTO,		"lset",			"qset", 			REPLY_STATUS},
 	{STRATEGY_AUTO,		"lrange",		"qslice",			REPLY_MULTI_BULK},
 
 	{STRATEGY_AUTO, 	NULL,			NULL,			0}
 };
 
-int RedisLink::convert_req(){
+void RedisLink::init(){
 	if(!inited){
 		inited = true;
-		
 		RedisCommand_raw *def = &cmds_raw[0];
 		while(def->redis_cmd != NULL){
 			RedisRequestDesc desc;
@@ -132,23 +132,32 @@ int RedisLink::convert_req(){
 			def += 1;
 		}
 	}
-	
-	this->req_desc = NULL;
-	
-	std::map<std::string, RedisRequestDesc>::iterator it;
+}
+
+int RedisLink::convert_req(){
+	std::unordered_map<std::string, RedisRequestDesc>::iterator it;
 	it = cmd_table.find(cmd);
 	if(it == cmd_table.end()){
-		recv_string.push_back(cmd);
-		for(int i=1; i<recv_bytes.size(); i++){
-			recv_string.push_back(recv_bytes[i].String());
-		}
+		this->req_desc = NULL;
+		recv_bytes[0] = Bytes(cmd.data(), cmd.size());
 		return 0;
 	}
 	this->req_desc = &(it->second);
 
-	if(this->req_desc->strategy == STRATEGY_HKEYS
-			||  this->req_desc->strategy == STRATEGY_HVALS
-	){
+	switch(req_desc->strategy){
+	default:
+		// STRATEGY_AUTO and all passthrough strategies: only the command name
+		// changes, args pass through as-is. recv_bytes[1..n] remain valid views
+		// into the input buffer for the lifetime of this command (safe because
+		// the link is pipeline-serial: FDEVENT_IN is suppressed while a command
+		// is in-flight, so input->nice() cannot run until after recv_req()
+		// returns and the response is written).
+		recv_bytes[0] = Bytes(req_desc->ssdb_cmd.data(), req_desc->ssdb_cmd.size());
+		return 0;
+
+	case STRATEGY_HKEYS:
+	case STRATEGY_HVALS:
+		recv_string.clear();
 		recv_string.push_back(req_desc->ssdb_cmd);
 		if(recv_bytes.size() == 2){
 			recv_string.push_back(recv_bytes[1].String());
@@ -156,18 +165,20 @@ int RedisLink::convert_req(){
 			recv_string.push_back("");
 			recv_string.push_back("2000000000");
 		}
-		return 0;
-	}
-	if(this->req_desc->strategy == STRATEGY_SETEX){
+		return 1;
+
+	case STRATEGY_SETEX:
+		recv_string.clear();
 		recv_string.push_back(req_desc->ssdb_cmd);
 		if(recv_bytes.size() == 4){
 			recv_string.push_back(recv_bytes[1].String());
 			recv_string.push_back(recv_bytes[3].String());
 			recv_string.push_back(recv_bytes[2].String());
 		}
-		return 0;
-	}
-	if(this->req_desc->strategy == STRATEGY_ZADD){
+		return 1;
+
+	case STRATEGY_ZADD:
+		recv_string.clear();
 		recv_string.push_back(req_desc->ssdb_cmd);
 		if(recv_bytes.size() >= 2){
 			recv_string.push_back(recv_bytes[1].String());
@@ -177,32 +188,34 @@ int RedisLink::convert_req(){
 				recv_string.push_back(str(score));
 			}
 		}
-		return 0;
-	}
-	if(this->req_desc->strategy == STRATEGY_ZINCRBY){
+		return 1;
+
+	case STRATEGY_ZINCRBY:
+		recv_string.clear();
 		recv_string.push_back(req_desc->ssdb_cmd);
 		if(recv_bytes.size() == 4){
 			recv_string.push_back(recv_bytes[1].String());
 			recv_string.push_back(recv_bytes[3].String());
 			recv_string.push_back(recv_bytes[2].String());
 		}
-		return 0;
-	}
-	if(this->req_desc->strategy == STRATEGY_REMRANGEBYRANK
-		|| this->req_desc->strategy == STRATEGY_REMRANGEBYSCORE)
-	{
+		return 1;
+
+	case STRATEGY_REMRANGEBYRANK:
+	case STRATEGY_REMRANGEBYSCORE:
+		recv_string.clear();
 		recv_string.push_back(req_desc->ssdb_cmd);
 		if(recv_bytes.size() >= 4){
 			recv_string.push_back(recv_bytes[1].String());
 			recv_string.push_back(recv_bytes[2].String());
 			recv_string.push_back(recv_bytes[3].String());
 		}
-		return 0;
-	}
-	if(this->req_desc->strategy == STRATEGY_ZRANGE || this->req_desc->strategy == STRATEGY_ZREVRANGE){
+		return 1;
+
+	case STRATEGY_ZRANGE:
+	case STRATEGY_ZREVRANGE: {
+		recv_string.clear();
 		std::string cmd = "redis_";
 		cmd += req_desc->ssdb_cmd;
-		
 		recv_string.push_back(cmd);
 		recv_string.push_back(recv_bytes[1].String());
 		if(recv_bytes.size() >= 4){
@@ -214,16 +227,19 @@ int RedisLink::convert_req(){
 			strtolower(&s);
 			recv_string.push_back(s);
 		}
-		return 0;
+		return 1;
 	}
-	if(this->req_desc->strategy == STRATEGY_ZRANGEBYSCORE || this->req_desc->strategy == STRATEGY_ZREVRANGEBYSCORE){
+
+	case STRATEGY_ZRANGEBYSCORE:
+	case STRATEGY_ZREVRANGEBYSCORE: {
+		recv_string.clear();
 		recv_string.push_back(req_desc->ssdb_cmd);
 		std::string name, smin, smax, withscores, offset, count;
 		if(recv_bytes.size() >= 4){
 			name = recv_bytes[1].String();
 			smin = recv_bytes[2].String();
 			smax = recv_bytes[3].String();
-			
+
 			bool after_limit = false;
 			for(int i=4; i<recv_bytes.size(); i++){
 				std::string s = recv_bytes[i].String();
@@ -244,19 +260,19 @@ int RedisLink::convert_req(){
 			}
 		}
 		if(smin.empty() || smax.empty()){
-			return 0;
+			return 1;
 		}
-		
+
 		recv_string.push_back(name);
 		recv_string.push_back("");
-		
+
 		if(smin == "-inf" || smin == "+inf"){
 			recv_string.push_back("");
 		}else{
 			if(smin[0] == '('){
 				std::string tmp(smin.data() + 1, smin.size() - 1);
 				char buf[32];
-				if(this->req_desc->strategy == STRATEGY_ZRANGEBYSCORE){
+				if(req_desc->strategy == STRATEGY_ZRANGEBYSCORE){
 					snprintf(buf, sizeof(buf), "%d", str_to_int(tmp) + 1);
 				}else{
 					snprintf(buf, sizeof(buf), "%d", str_to_int(tmp) - 1);
@@ -271,7 +287,7 @@ int RedisLink::convert_req(){
 			if(smax[0] == '('){
 				std::string tmp(smax.data() + 1, smax.size() - 1);
 				char buf[32];
-				if(this->req_desc->strategy == STRATEGY_ZRANGEBYSCORE){
+				if(req_desc->strategy == STRATEGY_ZRANGEBYSCORE){
 					snprintf(buf, sizeof(buf), "%d", str_to_int(tmp) - 1);
 				}else{
 					snprintf(buf, sizeof(buf), "%d", str_to_int(tmp) + 1);
@@ -280,27 +296,12 @@ int RedisLink::convert_req(){
 			}
 			recv_string.push_back(smax);
 		}
-		if(offset.empty()){
-			recv_string.push_back("0");
-		}else{
-			recv_string.push_back(offset);
-		}
-		if(count.empty()){
-			recv_string.push_back("2000000000");
-		}else{
-			recv_string.push_back(count);
-		}
-
+		recv_string.push_back(offset.empty() ? "0" : offset);
+		recv_string.push_back(count.empty()  ? "2000000000" : count);
 		recv_string.push_back(withscores);
-		return 0;
+		return 1;
 	}
-
-	recv_string.push_back(req_desc->ssdb_cmd);
-	for(int i=1; i<recv_bytes.size(); i++){
-		recv_string.push_back(recv_bytes[i].String());
 	}
-	
-	return 0;
 }
 
 const std::vector<Bytes>* RedisLink::recv_req(Buffer *input){
@@ -324,19 +325,19 @@ const std::vector<Bytes>* RedisLink::recv_req(Buffer *input){
 
 	cmd = recv_bytes[0].String();
 	strtolower(&cmd);
-	
-	recv_string.clear();
-	
-	this->convert_req();
 
-	// Bytes don't hold memory, so we firstly copy Bytes into string and store
-	// in a vector of string, then create Bytes-es prointing to strings
-	recv_bytes.clear();
-	for(int i=0; i<recv_string.size(); i++){
-		std::string *str = &recv_string[i];
-		recv_bytes.push_back(Bytes(str->data(), str->size()));
+	if(this->convert_req()){
+		// Complex strategy: args were reordered/transformed into recv_string.
+		// Rebuild recv_bytes as owning views into recv_string.
+		recv_bytes.clear();
+		for(int i=0; i<recv_string.size(); i++){
+			std::string *str = &recv_string[i];
+			recv_bytes.push_back(Bytes(str->data(), str->size()));
+		}
 	}
-	
+	// else: STRATEGY_AUTO or unknown command — convert_req() swapped recv_bytes[0]
+	// in place; recv_bytes[1..n] remain as valid views into the input buffer.
+
 	return &recv_bytes;
 }
 
@@ -422,40 +423,39 @@ int RedisLink::send_resp(Buffer *output, const std::vector<std::string> &resp){
 			return 0;
 		}
 		char buf[32];
-		std::vector<std::string>::const_iterator req_it, resp_it;
+		int req_start;
 		if(req_desc->strategy == STRATEGY_MGET){
-			req_it = recv_string.begin() + 1;
-			snprintf(buf, sizeof(buf), "*%d\r\n", (int)recv_string.size() - 1);
+			req_start = 1;
+			snprintf(buf, sizeof(buf), "*%d\r\n", (int)recv_bytes.size() - 1);
 		}else{
-			req_it = recv_string.begin() + 2;
-			snprintf(buf, sizeof(buf), "*%d\r\n", (int)recv_string.size() - 2);
+			req_start = 2;
+			snprintf(buf, sizeof(buf), "*%d\r\n", (int)recv_bytes.size() - 2);
 		}
 		output->append(buf);
-		
-		resp_it = resp.begin() + 1;
 
-		while(req_it != recv_string.end()){
-			const std::string &req_key = *req_it;
-			req_it ++;
+		std::vector<std::string>::const_iterator resp_it = resp.begin() + 1;
+
+		for(int i = req_start; i < (int)recv_bytes.size(); i++){
+			const Bytes &req_key = recv_bytes[i];
 			if(resp_it == resp.end()){
 				output->append("$-1\r\n");
 				continue;
 			}
 			const std::string &resp_key = *resp_it;
-			//log_debug("%s %s", req_key.c_str(), resp_key.c_str());
-			if(req_key != resp_key){
+			//log_debug("%s %s", req_key.String().c_str(), resp_key.c_str());
+			if(req_key != Bytes(resp_key)){
 				output->append("$-1\r\n");
 				// loop until we find value to the requested key
 				continue;
 			}
-				
+
 			const std::string &val = *(resp_it + 1);
 			char buf[32];
 			snprintf(buf, sizeof(buf), "$%d\r\n", (int)val.size());
 			output->append(buf);
 			output->append(val.data(), val.size());
 			output->append("\r\n");
-				
+
 			resp_it += 2;
 		}
 

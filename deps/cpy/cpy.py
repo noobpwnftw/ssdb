@@ -4,6 +4,7 @@
 # Link: http://www.ideawu.net/
 #################################
 
+from importlib import reload
 import sys, os
 import signal
 def __sigint__(n, f):
@@ -19,7 +20,6 @@ def usage():
 
 # 不然管道时报错
 reload(sys)
-sys.setdefaultencoding('utf-8')
 
 from engine import CpyEngine
 cpy = CpyEngine()
@@ -66,7 +66,9 @@ if not is_compile:
 	sys.argv = sys.argv[1 :]
 	sys.path.insert(0, os.path.dirname(dstfile))
 	try:
-		execfile(dstfile)
+		with open(dstfile, "r") as f:
+			code = f.read()
+			exec(code)
 	except Exception:
 		import traceback
 		sys.stderr.write(traceback.format_exc())

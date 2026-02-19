@@ -36,8 +36,6 @@ private:
 	static const int OUT_OF_SYNC = 8;
 	int status;
 
-	void migrate_old_status();
-
 	std::string status_key();
 	void load_status();
 	void save_status();

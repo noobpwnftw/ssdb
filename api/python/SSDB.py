@@ -98,7 +98,7 @@ class SSDB_Response(object):
 					pass
 					val = int(resp[1])
 					this.set('ok', val)
-				except Exception , e:
+				except Exception as e:
 					pass
 					this.set('server_error', 'Invalid response')
 			else:
@@ -122,7 +122,7 @@ class SSDB_Response(object):
 					pass
 					val = float(resp[1])
 					this.set('ok', val)
-				except Exception , e:
+				except Exception as e:
 					pass
 					this.set('server_error', 'Invalid response')
 			else:
@@ -158,7 +158,7 @@ class SSDB_Response(object):
 					try:
 						pass
 						v = int(v)
-					except Exception , e:
+					except Exception as e:
 						pass
 						v = - (1)
 					data['index'].append(k)
@@ -274,7 +274,7 @@ class SSDB(object):
 				try:
 					pass
 					size = int(params[2])
-				except Exception , e:
+				except Exception as e:
 					pass
 
 				if size==1:
@@ -348,20 +348,19 @@ class SSDB(object):
 		s = (nl.join(ps) + '\n\n')
 		try:
 			pass
-
+			data = s.encode()
 			while True:
 				pass
-				ret = this.sock.send(s)
-
+				ret = this.sock.send(data)
 				if ret==0:
 					pass
 					return - (1)
-				s = s[ret : ]
+				data = data[ret : ]
 
-				if len(s)==0:
+				if len(data)==0:
 					pass
 					break
-		except socket.error , e:
+		except socket.error as e:
 			pass
 			return - (1)
 		return ret
@@ -371,7 +370,7 @@ class SSDB(object):
 		try:
 			pass
 			data = this.sock.recv(1024 * 8)
-		except Exception , e:
+		except Exception as e:
 			pass
 			data = ''
 
@@ -379,7 +378,7 @@ class SSDB(object):
 			pass
 			this.close()
 			return 0
-		this.recv_buf += data
+		this.recv_buf += data.decode()
 		return len(data)
 
 	def recv(this):
@@ -430,7 +429,7 @@ class SSDB(object):
 			try:
 				pass
 				num = int(line)
-			except Exception , e:
+			except Exception as e:
 				pass
 				return []
 			epos = (spos + num)

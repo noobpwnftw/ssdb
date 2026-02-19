@@ -16,14 +16,13 @@ public:
 	
 	void load(const Config &conf);
 
-	size_t cache_size;
 	size_t max_open_files;
 	size_t write_buffer_size;
-	size_t block_size;
-	int compaction_speed;
-	std::string compression;
+	size_t sst_size;
+	bool compression;
 	bool binlog;
 	size_t binlog_capacity;
+	bool wal;
 };
 
 #endif

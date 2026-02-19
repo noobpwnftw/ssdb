@@ -9,6 +9,11 @@ found in the LICENSE file.
 static const int SSDB_SCORE_WIDTH		= 9;
 static const int SSDB_KEY_LEN_MAX		= 255;
 
+enum {
+	kDefaultCFHandle = 0,
+	kOplogCFHandle = 1
+};
+
 class DataType{
 public:
 	static const char SYNCLOG	= 1;

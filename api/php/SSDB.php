@@ -22,7 +22,7 @@ class SSDBTimeoutException extends SSDBException
  */
 class SimpleSSDB extends SSDB
 {
-	function __construct($host, $port, $timeout_ms=2000){
+	function __construct($host, $port=8888, $timeout_ms=5000){
 		parent::__construct($host, $port, $timeout_ms);
 		$this->easy();
 	}
@@ -72,9 +72,22 @@ class SSDB
 	private $_easy = false;
 	public $last_resp = null;
 
-	function __construct($host, $port, $timeout_ms=2000){
+	function __construct($host, $port=8888, $timeout_ms=5000){
 		$timeout_f = (float)$timeout_ms/1000;
-		$this->sock = @stream_socket_client("[$host]:$port", $errno, $errstr, $timeout_f);
+		$remote = null;
+		if(strpos($host, 'unix://') === 0){
+			$remote = $host;
+		}else if(strlen($host) > 0 && $host[0] == '/'){
+			$remote = 'unix://' . $host;
+		}else{
+			$host_for_uri = $host;
+			if(strpos($host, ':') !== false && $host[0] != '['){
+				// Wrap raw IPv6 host when building tcp:// URI.
+				$host_for_uri = '[' . $host . ']';
+			}
+			$remote = "tcp://$host_for_uri:$port";
+		}
+		$this->sock = @stream_socket_client($remote, $errno, $errstr, $timeout_f);
 		if(!$this->sock){
 			throw new SSDBException("$errno: $errstr");
 		}
@@ -418,10 +431,7 @@ class SSDB
 			case 'zlist':
 			case 'qslice':
 				if($resp[0] == 'ok'){
-					$data = array();
-					if($resp[0] == 'ok'){
-						$data = array_slice($resp, 1);
-					}
+					$data = array_slice($resp, 1);
 					return new SSDB_Response($resp[0], $data);
 				}else{
 					$errmsg = isset($resp[1])? $resp[1] : '';

@@ -9,6 +9,7 @@ found in the LICENSE file.
 #include <stdarg.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <atomic>
 
 #include "link.h"
 #include "link_addr.h"
@@ -18,23 +19,23 @@ found in the LICENSE file.
 #define INIT_BUFFER_SIZE  1024
 #define BEST_BUFFER_SIZE  (8 * 1024)
 
+static std::atomic<uint64_t> g_next_gen{ 1 };
 
 Link::Link(bool is_server){
 	redis = NULL;
-
 	sock = -1;
 	noblock_ = false;
 	error_ = false;
 	remote_ip[0] = '\0';
 	remote_port = -1;
 	auth = false;
-	ignore_key_range = false;
 	
 	if(is_server){
 		input = output = NULL;
 	}else{
 		input = new Buffer(INIT_BUFFER_SIZE);
 		output = new Buffer(INIT_BUFFER_SIZE);
+		generation = g_next_gen.fetch_add(1, std::memory_order_relaxed);
 	}
 }
 
@@ -117,7 +118,7 @@ Link* Link::connect(const char *host, int port){
 		}
 	}
 
-	LinkAddr addr(host, port);
+	LinkAddr addr(AF_INET, host, port);
 
 	if((sock = ::socket(addr.family, SOCK_STREAM, 0)) == -1){
 		goto sock_err;
@@ -128,9 +129,11 @@ Link* Link::connect(const char *host, int port){
 
 	//log_debug("fd: %d, connect to %s:%d", sock, ip, port);
 	link = new Link();
+	link->family = addr.family;
 	link->ipv4 = addr.ipv4;
 	link->sock = sock;
 	link->keepalive(true);
+	link->nodelay();
 	return link;
 sock_err:
 	//log_debug("connect to %s:%d failed: %s", ip, port, strerror(errno));
@@ -140,17 +143,22 @@ sock_err:
 	return NULL;
 }
 
-Link* Link::listen(const char *ip, int port){
+Link* Link::listen(short family, const char *ip, int port){
 	Link *link;
 	int sock = -1;
-	LinkAddr addr(ip, port);
+	LinkAddr addr(family, ip, port);
 
 	int opt = 1;
 	if((sock = ::socket(addr.family, SOCK_STREAM, 0)) == -1){
 		goto sock_err;
 	}
-	if(::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1){
-		goto sock_err;
+	if(addr.family != AF_UNIX){
+		if(::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1){
+			goto sock_err;
+		}
+		if(::setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) == -1){
+			goto sock_err;
+		}
 	}
 	if(::bind(sock, addr.addr(), addr.addrlen) == -1){
 		goto sock_err;
@@ -161,10 +169,16 @@ Link* Link::listen(const char *ip, int port){
 	//log_debug("server socket fd: %d, listen on: %s:%d", sock, ip, port);
 
 	link = new Link(true);
+	link->family = addr.family;
 	link->ipv4 = addr.ipv4;
 	link->sock = sock;
-	snprintf(link->remote_ip, sizeof(link->remote_ip), "%s", ip);
-	link->remote_port = port;
+	if(addr.family != AF_UNIX){
+		snprintf(link->remote_ip, sizeof(link->remote_ip), "%s", ip);
+		link->remote_port = port;
+	}else{
+		strncpy(link->remote_ip, "127.0.0.1", sizeof(link->remote_ip) - 1);
+		link->remote_port = 0;
+	}
 	return link;
 sock_err:
 	//log_debug("listen %s:%d failed: %s", ip, port, strerror(errno));
@@ -177,7 +191,7 @@ sock_err:
 Link* Link::accept(){
 	Link *link;
 	int client_sock;
-	LinkAddr addr(this->ipv4);
+	LinkAddr addr(this->family, this->ipv4);
 
 	while((client_sock = ::accept(sock, addr.addr(), &addr.addrlen)) == -1){
 		if(errno != EINTR){
@@ -186,32 +200,39 @@ Link* Link::accept(){
 		}
 	}
 
-	// avoid client side TIME_WAIT
-	struct linger opt = {1, 0};
-	int ret = ::setsockopt(client_sock, SOL_SOCKET, SO_LINGER, (void *)&opt, sizeof(opt));
-	if (ret != 0) {
-		//log_error("socket %d set linger failed: %s", client_sock, strerror(errno));
+	if(addr.family != AF_UNIX){
+		// avoid client side TIME_WAIT
+		struct linger opt = {1, 0};
+		int ret = ::setsockopt(client_sock, SOL_SOCKET, SO_LINGER, (void *)&opt, sizeof(opt));
+		if (ret != 0) {
+			//log_error("socket %d set linger failed: %s", client_sock, strerror(errno));
+		}
 	}
-
 	link = new Link();
 	link->sock = client_sock;
-	link->keepalive(true);
-	link->remote_port = addr.port();
-	inet_ntop(addr.family, addr.sin_addr(), link->remote_ip, sizeof(link->remote_ip));
-	if(!addr.ipv4){
-		if(strchr(link->remote_ip, '.')){
-			char *p = strrchr(link->remote_ip, ':');
-			if(p){
-				p += 1;
-				char *s = link->remote_ip;
-				while(*p != '\0'){
-					*s = *p;
-					s ++;
-					p ++;
+	if(addr.family != AF_UNIX){
+		link->keepalive(true);
+		link->nodelay();
+		link->remote_port = addr.port();
+		inet_ntop(addr.family, addr.sin_addr(), link->remote_ip, sizeof(link->remote_ip));
+		if(!addr.ipv4){
+			if(strchr(link->remote_ip, '.')){
+				char *p = strrchr(link->remote_ip, ':');
+				if(p){
+					p += 1;
+					char *s = link->remote_ip;
+					while(*p != '\0'){
+						*s = *p;
+						s ++;
+						p ++;
+					}
+					*s = '\0';
 				}
-				*s = '\0';
 			}
 		}
+	}else{
+		strncpy(link->remote_ip, "127.0.0.1", sizeof(link->remote_ip) - 1);
+		link->remote_port = 0;
 	}
 	return link;
 }
@@ -350,7 +371,7 @@ const std::vector<Bytes>* Link::recv(){
 			// packet end
 			parsed += head_len;
 			input->decr(parsed);
-			return &this->recv_data;;
+			return &this->recv_data;
 		}
 		if(head[0] < '0' || head[0] > '9'){
 			//log_warn("bad format");

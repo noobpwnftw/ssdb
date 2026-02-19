@@ -88,7 +88,7 @@ int main(int argc, char **argv){
 		}
 		printf("\n");
 
-		std::map<std::string, std::string> kvs;
+		std::unordered_map<std::string, std::string> kvs;
 		kvs.insert(std::make_pair("k1", "v1"));
 		kvs.insert(std::make_pair("k2", "v2"));
 		s = client->multi_set(kvs);
@@ -164,7 +164,7 @@ int main(int argc, char **argv){
 		}
 		printf("\n");
 
-		std::map<std::string, std::string> kvs;
+		std::unordered_map<std::string, std::string> kvs;
 		kvs.insert(std::make_pair("k1", "v1"));
 		kvs.insert(std::make_pair("k2", "v2"));
 		s = client->multi_hset(hash, kvs);
@@ -259,7 +259,7 @@ int main(int argc, char **argv){
 		}
 		printf("\n");
 
-		std::map<std::string, int64_t> kss;
+		std::unordered_map<std::string, int64_t> kss;
 		kss.insert(std::make_pair("k1", 123));
 		kss.insert(std::make_pair("k2", 124));
 		s = client->multi_zset(zset, kss);
