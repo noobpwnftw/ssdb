@@ -23,7 +23,7 @@ function show_version(link){
 function dbsize(link){
 	resp = link.request('info', []);
 	foreach(resp.data as k=>v){
-		if(v != 'leveldb.stats'){
+		if(v != 'rocksdb.stats'){
 			continue;
 		}
 		s = resp.data[k + 1];
@@ -37,6 +37,27 @@ function dbsize(link){
 		return size;
 	}
 	return 0;
+}
+
+function hlist_names(rows){
+	names = [];
+	i = 0;
+	while(i < len(rows)){
+		name = rows[i];
+		i += 1;
+		if(i >= len(rows)){
+			break;
+		}
+		cnt = int(rows[i]);
+		i += 1;
+		skip = cnt * 2;
+		if(skip < 0 || (i + skip > len(rows))){
+			break;
+		}
+		i += skip;
+		names.append(name);
+	}
+	return names;
 }
 
 class SSDB_iterator_base
@@ -112,7 +133,11 @@ class SSDB_hash_list extends SSDB_iterator_base
 				this.finish = true;
 				return false;
 			}
-			this.index = resp.data;
+			this.index = hlist_names(resp.data);
+			if(len(this.index) == 0){
+				this.finish = true;
+				return false;
+			}
 		}
 		this.key = this.index.pop(0);
 		return true;

@@ -10,6 +10,24 @@
 
 include(dirname(__FILE__) . '/../api/php/SSDB.php');
 
+function hlist_names($rows){
+	$names = array();
+	for($i=0; $i<count($rows); ){
+		$name = $rows[$i++];
+		if($i >= count($rows)){
+			break;
+		}
+		$cnt = intval($rows[$i++]);
+		$skip = $cnt * 2;
+		if($skip < 0 || ($i + $skip > count($rows))){
+			break;
+		}
+		$i += $skip;
+		$names[] = $name;
+	}
+	return $names;
+}
+
 $host = '127.0.0.1';
 $port = 8888;
 $ssdb = new SimpleSSDB($host, $port);
@@ -41,7 +59,11 @@ while(1){
 $s_key = ''; // the lower bound of key range to iterate over(exclusive)
 $e_key = ''; // the upper bound of key range to iterate over(inclusive)
 while(1){
-	$names = $ssdb->hlist($s_key, $e_key, $size);
+	$rows = $ssdb->hlist($s_key, $e_key, $size);
+	if(!$rows){
+		break;
+	}
+	$names = hlist_names($rows);
 	if(!$names){
 		break;
 	}

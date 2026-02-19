@@ -40,12 +40,11 @@ BackendSync::~BackendSync(){
 
 std::vector<std::string> BackendSync::stats(){
 	std::vector<std::string> ret;
-	std::map<pthread_t, Client *>::iterator it;
+	std::set<Client *>::iterator it;
 
 	Locking l(&mutex);
 	for(it = workers.begin(); it != workers.end(); it++){
-		Client *client = it->second;
-		ret.push_back(client->stats());
+		ret.push_back((*it)->stats());
 	}
 	return ret;
 }
@@ -82,9 +81,8 @@ void* BackendSync::_run_thread(void *arg){
 	client.init();
 
 	{
-		pthread_t tid = pthread_self();
 		Locking l(&backend->mutex);
-		backend->workers[tid] = &client;
+		backend->workers.insert(&client);
 	}
 
 // sleep longer to reduce logs.find
@@ -140,7 +138,7 @@ void* BackendSync::_run_thread(void *arg){
 	delete link;
 
 	Locking l(&backend->mutex);
-	backend->workers.erase(pthread_self());
+	backend->workers.erase(&client);
 	return (void *)NULL;
 }
 
@@ -199,30 +197,33 @@ void BackendSync::Client::init(){
 	const std::vector<Bytes> *req = this->link->last_recv();
 	last_seq = 0;
 	if(req->size() > 1){
-		last_seq = req->at(1).Uint64();
+		last_seq = (*req)[1].Uint64();
 	}
 	last_key = "";
 	if(req->size() > 2){
-		last_key = req->at(2).String();
+		last_key = (*req)[2].String();
 	}
 	// is_mirror
 	if(req->size() > 3){
-		if(req->at(3).String() == "mirror"){
+		if((*req)[3].String() == "mirror"){
 			is_mirror = true;
 		}
 	}
 	
 	SSDBImpl *ssdb = (SSDBImpl *)backend->ssdb;
 	BinlogQueue *logs = ssdb->binlogs;
+	logs->lock();
 	if(last_seq != 0 && (last_seq > logs->max_seq() || last_seq < logs->min_seq())){
 		log_error("%s:%d fd: %d OUT_OF_SYNC! seq: %" PRIu64 " not in [%" PRIu64 ", %" PRIu64 "]",
 			link->remote_ip, link->remote_port, link->fd(),
 			last_seq, logs->min_seq(), logs->max_seq()
 			);
+		logs->unlock();
 		this->out_of_sync();
 		return;
 	}
-	
+	logs->unlock();
+
 	const char *type = is_mirror? "mirror" : "sync";
 	// a slave must reset its last_key when receiving 'copy_end' command
 	if(last_key == "" && last_seq != 0){
@@ -387,17 +388,6 @@ int BackendSync::Client::sync(BinlogQueue *logs){
 			}
 			continue;
 		}
-		if(this->last_seq != 0 && log.seq() != expect_seq){
-			log_warn("%s:%d fd: %d, OUT_OF_SYNC! log.seq: %" PRIu64 ", expect_seq: %" PRIu64 "",
-				link->remote_ip, link->remote_port,
-				link->fd(),
-				log.seq(),
-				expect_seq
-				);
-			this->out_of_sync();
-			return 1;
-		}
-	
 		// update last_seq
 		this->last_seq = log.seq();
 
@@ -410,12 +400,11 @@ int BackendSync::Client::sync(BinlogQueue *logs){
 				continue;
 			}
 		}
-		
 		break;
 	}
 
 	int ret = 0;
-	std::string val;
+	TERARKDB_NAMESPACE::LazyBuffer val;
 	switch(log.cmd()){
 		case BinlogCommand::KSET:
 		case BinlogCommand::HSET:
@@ -428,7 +417,7 @@ int BackendSync::Client::sync(BinlogQueue *logs){
 				log_trace("fd: %d, skip not found: %s", link->fd(), log.dumps().c_str());
 			}else{
 				log_trace("fd: %d, %s", link->fd(), log.dumps().c_str());
-				link->send(log.repr(), val);
+				link->send(log.repr(), Bytes(val.data(), val.size()));
 			}
 			break;
 		case BinlogCommand::QSET:
@@ -440,7 +429,7 @@ int BackendSync::Client::sync(BinlogQueue *logs){
 			}else{
 				// ret == 0: element popped, push an empty value(pop later in binlog)
 				log_trace("fd: %d, %s", link->fd(), log.dumps().c_str());
-				link->send(log.repr(), val);
+				link->send(log.repr(), Bytes(val.data(), val.size()));
 			}
 			break;
 		case BinlogCommand::KDEL:
