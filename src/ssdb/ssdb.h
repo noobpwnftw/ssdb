@@ -12,6 +12,9 @@ found in the LICENSE file.
 #include "options.h"
 #include "iterator.h"
 
+using StrPair = std::pair<std::string, std::string>;
+using BytesPair = std::pair<Bytes, Bytes>;
+
 class Bytes;
 class Config;
 
@@ -66,21 +69,27 @@ public:
 
 	/* hash */
 
+	virtual int migrate_hset(const std::vector<Bytes>& items, int offset, char log_type=BinlogType::SYNC) = 0;
+	virtual int sync_hset(const Bytes &name, const Bytes &val, char log_type=BinlogType::SYNC) = 0;
+	virtual int sync_hdel(const Bytes &name, char log_type=BinlogType::SYNC) = 0;
 	virtual int hset(const Bytes &name, const Bytes &key, const Bytes &val, char log_type=BinlogType::SYNC) = 0;
 	virtual int hdel(const Bytes &name, const Bytes &key, char log_type=BinlogType::SYNC) = 0;
 	// -1: error, 1: ok, 0: value is not an integer or out of range
 	virtual int hincr(const Bytes &name, const Bytes &key, int64_t by, int64_t *new_val, char log_type=BinlogType::SYNC) = 0;
+	virtual int multi_hset(const Bytes &name, const std::vector<Bytes> &kvs, int offset=0, char log_type=BinlogType::SYNC) = 0;
+	virtual int multi_hdel(const Bytes &name, const std::vector<Bytes> &keys, int offset=0, char log_type=BinlogType::SYNC) = 0;
 
 	virtual int64_t hsize(const Bytes &name) = 0;
-	virtual int64_t hclear(const Bytes &name) = 0;
+	virtual int64_t hclear(const Bytes &name, char log_type=BinlogType::SYNC) = 0;
 	virtual int hget(const Bytes &name, const Bytes &key, std::string *val) = 0;
+	virtual int multi_hget(const Bytes &name, const std::vector<Bytes> &keys, int offset, std::vector<std::string> &vals) = 0;
+	virtual int hgetall(const Bytes &name, std::vector<StrPair>& vals) = 0;
 	virtual int hlist(const Bytes &name_s, const Bytes &name_e, uint64_t limit,
 			std::vector<std::string> *list) = 0;
 	virtual int hrlist(const Bytes &name_s, const Bytes &name_e, uint64_t limit,
 			std::vector<std::string> *list) = 0;
 	virtual HIterator* hscan(const Bytes &name, const Bytes &start, const Bytes &end, uint64_t limit) = 0;
 	virtual HIterator* hrscan(const Bytes &name, const Bytes &start, const Bytes &end, uint64_t limit) = 0;
-	virtual int64_t hfix(const Bytes &name) = 0;
 
 	/* zset */
 

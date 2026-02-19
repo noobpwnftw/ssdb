@@ -31,7 +31,7 @@ int Fdevents::set(int fd, int flags, int data_num, void *data_ptr){
 	if(fde->s_flags & flags){
 		return 0;
 	}
-	int ctl_op = fde->s_flags? EPOLL_CTL_MOD : EPOLL_CTL_ADD;
+	int ctl_op = fde->s_flags ? EPOLL_CTL_MOD : EPOLL_CTL_ADD;
 
 	fde->s_flags |= flags;
 	fde->data.num = data_num;
@@ -69,7 +69,7 @@ int Fdevents::clr(int fd, int flags){
 	}
 
 	fde->s_flags &= ~flags;
-	int ctl_op = fde->s_flags? EPOLL_CTL_MOD: EPOLL_CTL_DEL;
+	int ctl_op = fde->s_flags ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;
 
 	struct epoll_event epe;
 	epe.data.ptr = fde;

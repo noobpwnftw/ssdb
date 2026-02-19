@@ -5,11 +5,11 @@ found in the LICENSE file.
 */
 #include "t_queue.h"
 
-static int qget_by_seq(leveldb::DB* db, const Bytes &name, uint64_t seq, std::string *val){
+static int qget_by_seq(TERARKDB_NAMESPACE::DB* db, TERARKDB_NAMESPACE::ReadOptions* read_opts, const Bytes &name, uint64_t seq, std::string *val){
 	std::string key = encode_qitem_key(name, seq);
-	leveldb::Status s;
+	TERARKDB_NAMESPACE::Status s;
 
-	s = db->Get(leveldb::ReadOptions(), key, val);
+	s = db->Get(*read_opts, key, val);
 	if(s.IsNotFound()){
 		return 0;
 	}else if(!s.ok()){
@@ -20,10 +20,10 @@ static int qget_by_seq(leveldb::DB* db, const Bytes &name, uint64_t seq, std::st
 	}
 }
 
-static int qget_uint64(leveldb::DB* db, const Bytes &name, uint64_t seq, uint64_t *ret){
+static int qget_uint64(TERARKDB_NAMESPACE::DB* db, TERARKDB_NAMESPACE::ReadOptions* read_opts, const Bytes &name, uint64_t seq, uint64_t *ret){
 	std::string val;
 	*ret = 0;
-	int s = qget_by_seq(db, name, seq, &val);
+	int s = qget_by_seq(db, read_opts, name, seq, &val);
 	if(s == 1){
 		if(val.size() != sizeof(uint64_t)){
 			return -1;
@@ -33,24 +33,24 @@ static int qget_uint64(leveldb::DB* db, const Bytes &name, uint64_t seq, uint64_
 	return s;
 }
 
-static int qdel_one(SSDBImpl *ssdb, const Bytes &name, uint64_t seq){
+static int qdel_one(BinlogQueue *binlogs, const Bytes &name, uint64_t seq){
 	std::string key = encode_qitem_key(name, seq);
-	leveldb::Status s;
+	TERARKDB_NAMESPACE::Status s;
 
-	ssdb->binlogs->Delete(key);
+	binlogs->Delete(key);
 	return 0;
 }
 
-static int qset_one(SSDBImpl *ssdb, const Bytes &name, uint64_t seq, const Bytes &item){
+static int qset_one(BinlogQueue *binlogs, const Bytes &name, uint64_t seq, const Bytes &item){
 	if(name.size() > SSDB_KEY_LEN_MAX ){
 		log_error("name too long! %s", hexmem(name.data(), name.size()).c_str());
 		return -1;
 	}
 
 	std::string key = encode_qitem_key(name, seq);
-	leveldb::Status s;
+	TERARKDB_NAMESPACE::Status s;
 
-	ssdb->binlogs->Put(key, slice(item));
+	binlogs->Put(key, slice(item));
 	return 0;
 }
 
@@ -62,10 +62,10 @@ static int64_t incr_qsize(SSDBImpl *ssdb, const Bytes &name, int64_t incr){
 	size += incr;
 	if(size <= 0){
 		ssdb->binlogs->Delete(encode_qsize_key(name));
-		qdel_one(ssdb, name, QFRONT_SEQ);
-		qdel_one(ssdb, name, QBACK_SEQ);
+		qdel_one(ssdb->binlogs, name, QFRONT_SEQ);
+		qdel_one(ssdb->binlogs, name, QBACK_SEQ);
 	}else{
-		ssdb->binlogs->Put(encode_qsize_key(name), leveldb::Slice((char *)&size, sizeof(size)));
+		ssdb->binlogs->Put(encode_qsize_key(name), TERARKDB_NAMESPACE::Slice((char *)&size, sizeof(size)));
 	}
 	return size;
 }
@@ -76,8 +76,8 @@ int64_t SSDBImpl::qsize(const Bytes &name){
 	std::string key = encode_qsize_key(name);
 	std::string val;
 
-	leveldb::Status s;
-	s = ldb->Get(leveldb::ReadOptions(), key, &val);
+	TERARKDB_NAMESPACE::Status s;
+	s = ldb->Get(read_opts, key, &val);
 	if(s.IsNotFound()){
 		return 0;
 	}else if(!s.ok()){
@@ -97,14 +97,14 @@ int64_t SSDBImpl::qsize(const Bytes &name){
 int SSDBImpl::qfront(const Bytes &name, std::string *item){
 	int ret = 0;
 	uint64_t seq;
-	ret = qget_uint64(this->ldb, name, QFRONT_SEQ, &seq);
+	ret = qget_uint64(ldb, &read_opts, name, QFRONT_SEQ, &seq);
 	if(ret == -1){
 		return -1;
 	}
 	if(ret == 0){
 		return 0;
 	}
-	ret = qget_by_seq(this->ldb, name, seq, item);
+	ret = qget_by_seq(ldb, &read_opts, name, seq, item);
 	return ret;
 }
 
@@ -112,26 +112,25 @@ int SSDBImpl::qfront(const Bytes &name, std::string *item){
 int SSDBImpl::qback(const Bytes &name, std::string *item){
 	int ret = 0;
 	uint64_t seq;
-	ret = qget_uint64(this->ldb, name, QBACK_SEQ, &seq);
+	ret = qget_uint64(ldb, &read_opts, name, QBACK_SEQ, &seq);
 	if(ret == -1){
 		return -1;
 	}
 	if(ret == 0){
 		return 0;
 	}
-	ret = qget_by_seq(this->ldb, name, seq, item);
+	ret = qget_by_seq(ldb, &read_opts, name, seq, item);
 	return ret;
 }
 
 int SSDBImpl::qset_by_seq(const Bytes &name, uint64_t seq, const Bytes &item, char log_type){
-	Transaction trans(binlogs);
 	uint64_t min_seq, max_seq;
 	int ret;
 	int64_t size = this->qsize(name);
 	if(size == -1){
 		return -1;
 	}
-	ret = qget_uint64(this->ldb, name, QFRONT_SEQ, &min_seq);
+	ret = qget_uint64(ldb, &read_opts, name, QFRONT_SEQ, &min_seq);
 	if(ret == -1){
 		return -1;
 	}
@@ -140,15 +139,16 @@ int SSDBImpl::qset_by_seq(const Bytes &name, uint64_t seq, const Bytes &item, ch
 		return 0;
 	}
 
-	ret = qset_one(this, name, seq, item);
+	std::string buf = encode_qitem_key(name, seq);
+	Transaction trans(binlogs);
+	ret = qset_one(binlogs, name, seq, item);
 	if(ret == -1){
+		binlogs->unlock();
 		return -1;
 	}
-
-	std::string buf = encode_qitem_key(name, seq);
 	binlogs->add_log(log_type, BinlogCommand::QSET, buf);
 
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("Write error!");
 		return -1;
@@ -158,7 +158,6 @@ int SSDBImpl::qset_by_seq(const Bytes &name, uint64_t seq, const Bytes &item, ch
 
 // return: 0: index out of range, -1: error, 1: ok
 int SSDBImpl::qset(const Bytes &name, int64_t index, const Bytes &item, char log_type){
-	Transaction trans(binlogs);
 	int64_t size = this->qsize(name);
 	if(size == -1){
 		return -1;
@@ -166,14 +165,14 @@ int SSDBImpl::qset(const Bytes &name, int64_t index, const Bytes &item, char log
 	if(index >= size || index < -size){
 		return 0;
 	}
-	
+
 	int ret;
 	uint64_t seq;
 	if(index >= 0){
-		ret = qget_uint64(this->ldb, name, QFRONT_SEQ, &seq);
+		ret = qget_uint64(ldb, &read_opts, name, QFRONT_SEQ, &seq);
 		seq += index;
 	}else{
-		ret = qget_uint64(this->ldb, name, QBACK_SEQ, &seq);
+		ret = qget_uint64(ldb, &read_opts, name, QBACK_SEQ, &seq);
 		seq += index + 1;
 	}
 	if(ret == -1){
@@ -183,16 +182,17 @@ int SSDBImpl::qset(const Bytes &name, int64_t index, const Bytes &item, char log
 		return 0;
 	}
 
-	ret = qset_one(this, name, seq, item);
+	std::string buf = encode_qitem_key(name, seq);
+	Transaction trans(binlogs);
+	ret = qset_one(binlogs, name, seq, item);
 	if(ret == -1){
+		binlogs->unlock();
 		return -1;
 	}
 
-	//log_info("qset %s %" PRIu64 "", hexmem(name.data(), name.size()).c_str(), seq);
-	std::string buf = encode_qitem_key(name, seq);
 	binlogs->add_log(log_type, BinlogCommand::QSET, buf);
-	
-	leveldb::Status s = binlogs->commit();
+
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("Write error!");
 		return -1;
@@ -201,38 +201,41 @@ int SSDBImpl::qset(const Bytes &name, int64_t index, const Bytes &item, char log
 }
 
 int64_t SSDBImpl::_qpush(const Bytes &name, const Bytes &item, uint64_t front_or_back_seq, char log_type){
-	Transaction trans(binlogs);
-
 	int ret;
 	// generate seq
 	uint64_t seq;
-	ret = qget_uint64(this->ldb, name, front_or_back_seq, &seq);
+	ret = qget_uint64(ldb, &read_opts, name, front_or_back_seq, &seq);
 	if(ret == -1){
 		return -1;
 	}
+	Transaction trans(binlogs);
 	// update front and/or back
 	if(ret == 0){
 		seq = QITEM_SEQ_INIT;
-		ret = qset_one(this, name, QFRONT_SEQ, Bytes(&seq, sizeof(seq)));
+		ret = qset_one(binlogs, name, QFRONT_SEQ, Bytes(&seq, sizeof(seq)));
 		if(ret == -1){
+			binlogs->unlock();
 			return -1;
 		}
-		ret = qset_one(this, name, QBACK_SEQ, Bytes(&seq, sizeof(seq)));
+		ret = qset_one(binlogs, name, QBACK_SEQ, Bytes(&seq, sizeof(seq)));
 	}else{
 		seq += (front_or_back_seq == QFRONT_SEQ)? -1 : +1;
-		ret = qset_one(this, name, front_or_back_seq, Bytes(&seq, sizeof(seq)));
+		ret = qset_one(binlogs, name, front_or_back_seq, Bytes(&seq, sizeof(seq)));
 	}
 	if(ret == -1){
+		binlogs->unlock();
 		return -1;
 	}
 	if(seq <= QITEM_MIN_SEQ || seq >= QITEM_MAX_SEQ){
+		binlogs->unlock();
 		log_info("queue is full, seq: %" PRIu64 " out of range", seq);
 		return -1;
 	}
 	
 	// prepend/append item
-	ret = qset_one(this, name, seq, item);
+	ret = qset_one(binlogs, name, seq, item);
 	if(ret == -1){
+		binlogs->unlock();
 		return -1;
 	}
 
@@ -246,10 +249,11 @@ int64_t SSDBImpl::_qpush(const Bytes &name, const Bytes &item, uint64_t front_or
 	// update size
 	int64_t size = incr_qsize(this, name, +1);
 	if(size == -1){
+		binlogs->unlock();
 		return -1;
 	}
 
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("Write error! %s", s.ToString().c_str());
 		return -1;
@@ -266,11 +270,10 @@ int64_t SSDBImpl::qpush_back(const Bytes &name, const Bytes &item, char log_type
 }
 
 int SSDBImpl::_qpop(const Bytes &name, std::string *item, uint64_t front_or_back_seq, char log_type){
-	Transaction trans(binlogs);
 	
 	int ret;
 	uint64_t seq;
-	ret = qget_uint64(this->ldb, name, front_or_back_seq, &seq);
+	ret = qget_uint64(ldb, &read_opts, name, front_or_back_seq, &seq);
 	if(ret == -1){
 		return -1;
 	}
@@ -278,7 +281,7 @@ int SSDBImpl::_qpop(const Bytes &name, std::string *item, uint64_t front_or_back
 		return 0;
 	}
 	
-	ret = qget_by_seq(this->ldb, name, seq, item);
+	ret = qget_by_seq(ldb, &read_opts, name, seq, item);
 	if(ret == -1){
 		return -1;
 	}
@@ -286,9 +289,11 @@ int SSDBImpl::_qpop(const Bytes &name, std::string *item, uint64_t front_or_back
 		return 0;
 	}
 
+	Transaction trans(binlogs);
 	// delete item
-	ret = qdel_one(this, name, seq);
+	ret = qdel_one(binlogs, name, seq);
 	if(ret == -1){
+		binlogs->unlock();
 		return -1;
 	}
 
@@ -301,6 +306,7 @@ int SSDBImpl::_qpop(const Bytes &name, std::string *item, uint64_t front_or_back
 	// update size
 	int64_t size = incr_qsize(this, name, -1);
 	if(size == -1){
+		binlogs->unlock();
 		return -1;
 	}
 		
@@ -308,13 +314,14 @@ int SSDBImpl::_qpop(const Bytes &name, std::string *item, uint64_t front_or_back
 	if(size > 0){
 		seq += (front_or_back_seq == QFRONT_SEQ)? +1 : -1;
 		//log_debug("seq: %" PRIu64 ", ret: %d", seq, ret);
-		ret = qset_one(this, name, front_or_back_seq, Bytes(&seq, sizeof(seq)));
+		ret = qset_one(binlogs, name, front_or_back_seq, Bytes(&seq, sizeof(seq)));
 		if(ret == -1){
+			binlogs->unlock();
 			return -1;
 		}
 	}
 		
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("Write error! %s", s.ToString().c_str());
 		return -1;
@@ -382,7 +389,6 @@ int SSDBImpl::qrlist(const Bytes &name_s, const Bytes &name_e, uint64_t limit,
 }
 
 int SSDBImpl::qfix(const Bytes &name){
-	Transaction trans(binlogs);
 	std::string key_s = encode_qitem_key(name, QITEM_MIN_SEQ - 1);
 	std::string key_e = encode_qitem_key(name, QITEM_MAX_SEQ);
 
@@ -410,18 +416,18 @@ int SSDBImpl::qfix(const Bytes &name){
 	if(error){
 		return -1;
 	}
-	
+
+	Transaction trans(binlogs);
 	if(count == 0){
-		this->binlogs->Delete(encode_qsize_key(name));
-		qdel_one(this, name, QFRONT_SEQ);
-		qdel_one(this, name, QBACK_SEQ);
+		binlogs->Delete(encode_qsize_key(name));
+		qdel_one(binlogs, name, QFRONT_SEQ);
+		qdel_one(binlogs, name, QBACK_SEQ);
 	}else{
-		this->binlogs->Put(encode_qsize_key(name), leveldb::Slice((char *)&count, sizeof(count)));
-		qset_one(this, name, QFRONT_SEQ, Bytes(&seq_min, sizeof(seq_min)));
-		qset_one(this, name, QBACK_SEQ, Bytes(&seq_max, sizeof(seq_max)));
+		binlogs->Put(encode_qsize_key(name), TERARKDB_NAMESPACE::Slice((char *)&count, sizeof(count)));
+		qset_one(binlogs, name, QFRONT_SEQ, Bytes(&seq_min, sizeof(seq_min)));
+		qset_one(binlogs, name, QBACK_SEQ, Bytes(&seq_max, sizeof(seq_max)));
 	}
-		
-	leveldb::Status s = binlogs->commit();
+	TERARKDB_NAMESPACE::Status s = binlogs->commit();
 	if(!s.ok()){
 		log_error("Write error!");
 		return -1;
@@ -436,7 +442,7 @@ int SSDBImpl::qslice(const Bytes &name, int64_t begin, int64_t end,
 	uint64_t seq_begin, seq_end;
 	if(begin >= 0 && end >= 0){
 		uint64_t tmp_seq;
-		ret = qget_uint64(this->ldb, name, QFRONT_SEQ, &tmp_seq);
+		ret = qget_uint64(ldb, &read_opts, name, QFRONT_SEQ, &tmp_seq);
 		if(ret != 1){
 			return ret;
 		}
@@ -444,7 +450,7 @@ int SSDBImpl::qslice(const Bytes &name, int64_t begin, int64_t end,
 		seq_end = tmp_seq + end;
 	}else if(begin < 0 && end < 0){
 		uint64_t tmp_seq;
-		ret = qget_uint64(this->ldb, name, QBACK_SEQ, &tmp_seq);
+		ret = qget_uint64(ldb, &read_opts, name, QBACK_SEQ, &tmp_seq);
 		if(ret != 1){
 			return ret;
 		}
@@ -452,11 +458,11 @@ int SSDBImpl::qslice(const Bytes &name, int64_t begin, int64_t end,
 		seq_end = tmp_seq + end + 1;
 	}else{
 		uint64_t f_seq, b_seq;
-		ret = qget_uint64(this->ldb, name, QFRONT_SEQ, &f_seq);
+		ret = qget_uint64(ldb, &read_opts, name, QFRONT_SEQ, &f_seq);
 		if(ret != 1){
 			return ret;
 		}
-		ret = qget_uint64(this->ldb, name, QBACK_SEQ, &b_seq);
+		ret = qget_uint64(ldb, &read_opts, name, QBACK_SEQ, &b_seq);
 		if(ret != 1){
 			return ret;
 		}
@@ -474,7 +480,7 @@ int SSDBImpl::qslice(const Bytes &name, int64_t begin, int64_t end,
 	
 	for(; seq_begin <= seq_end; seq_begin++){
 		std::string item;
-		ret = qget_by_seq(this->ldb, name, seq_begin, &item);
+		ret = qget_by_seq(ldb, &read_opts, name, seq_begin, &item);
 		if(ret == -1){
 			return -1;
 		}
@@ -490,10 +496,10 @@ int SSDBImpl::qget(const Bytes &name, int64_t index, std::string *item){
 	int ret;
 	uint64_t seq;
 	if(index >= 0){
-		ret = qget_uint64(this->ldb, name, QFRONT_SEQ, &seq);
+		ret = qget_uint64(ldb, &read_opts, name, QFRONT_SEQ, &seq);
 		seq += index;
 	}else{
-		ret = qget_uint64(this->ldb, name, QBACK_SEQ, &seq);
+		ret = qget_uint64(ldb, &read_opts, name, QBACK_SEQ, &seq);
 		seq += index + 1;
 	}
 	if(ret == -1){
@@ -503,6 +509,6 @@ int SSDBImpl::qget(const Bytes &name, int64_t index, std::string *item){
 		return 0;
 	}
 	
-	ret = qget_by_seq(this->ldb, name, seq, item);
+	ret = qget_by_seq(ldb, &read_opts, name, seq, item);
 	return ret;
 }

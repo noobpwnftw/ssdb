@@ -22,6 +22,8 @@ struct Data
 {
 	std::string key;
 	std::string val;
+	std::string hkey;
+	std::string hnum;
 	std::string num;
 };
 
@@ -56,12 +58,20 @@ void init_data(int num){
 		char buf[1024];
 
 		int n = rand();
-		snprintf(buf, sizeof(buf), "%d", n);
-		d->num = buf;
 		snprintf(buf, sizeof(buf), "k%010d", n);
 		d->key = buf;
 		snprintf(buf, sizeof(buf), "v%0100d", n);
 		d->val = buf;
+		buf[0] = 'a' + (n % 9);
+		buf[1] = '0' + ((n / 9) % 10);
+		buf[2] = 'a' + ((n / 90) % 9);
+		buf[3] = '0' + ((n / 810) % 10);
+		d->hkey.assign(buf, 4);
+		int h = (n % 60001) - 30000;
+		snprintf(buf, sizeof(buf), "%d", h);
+		d->hnum = buf;
+		snprintf(buf, sizeof(buf), "%d", n);
+		d->num = buf;
 		ds->insert(make_pair(d->key, d));
 	}
 }
@@ -89,11 +99,11 @@ void send_req(Link *link, const std::string &cmd, const Data *d){
 	}else if(cmd == "del"){
 		link->send(cmd, d->key);
 	}else if(cmd == "hset"){
-		link->send(cmd, "TEST", d->key, d->val);
+		link->send(cmd, d->key, d->hkey, d->hnum);
 	}else if(cmd == "hget"){
-		link->send(cmd, "TEST", d->key);
+		link->send(cmd, d->key, d->hkey);
 	}else if(cmd == "hdel"){
-		link->send(cmd, "TEST", d->key);
+		link->send(cmd, d->key, d->hkey);
 	}else if(cmd == "zset"){
 		link->send(cmd, "TEST", d->key, d->num);
 	}else if(cmd == "zget"){
@@ -228,4 +238,3 @@ int main(int argc, char **argv){
 
 	return 0;
 }
-

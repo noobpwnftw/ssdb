@@ -4,7 +4,7 @@ OBJS = log.o config.o bytes.o sorted_set.o app.o
 EXES = 
 
 all: ${OBJS}
-	ar -cru ./libutil.a ${OBJS}
+	${AR} -cru ./libutil.a ${OBJS}
 
 app.o: app.h app.cpp
 	${CXX} ${CFLAGS} -c app.cpp

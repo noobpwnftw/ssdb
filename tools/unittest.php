@@ -12,6 +12,23 @@ include(dirname(__FILE__) . '/../api/php/SSDB.php');
 
 class SSDBTest extends UnitTest{
 	private $ssdb;
+	private function hlist_names($rows){
+		$names = array();
+		for($i=0; $i<count($rows); ){
+			$name = $rows[$i++];
+			if($i >= count($rows)){
+				break;
+			}
+			$cnt = intval($rows[$i++]);
+			$skip = $cnt * 2;
+			if($skip < 0 || ($i + $skip > count($rows))){
+				break;
+			}
+			$i += $skip;
+			$names[] = $name;
+		}
+		return $names;
+	}
 
 	function __construct(){
 		$host = '127.0.0.1';
@@ -35,7 +52,11 @@ class SSDBTest extends UnitTest{
 			}
 		}
 		while(1){
-			$names = $ssdb->hlist('TEST_', 'TEST_'.pack('C', 255), 1000);
+			$rows = $ssdb->hlist('TEST_', 'TEST_'.pack('C', 255), 1000);
+			if(!$rows){
+				break;
+			}
+			$names = $this->hlist_names($rows);
 			if(!$names){
 				break;
 			}
@@ -338,7 +359,8 @@ class SSDBTest extends UnitTest{
 		$ssdb->hset("TEST_a", 'a', 1);
 		$ssdb->hset("TEST_b", 'a', 1);
 		$ssdb->hset("TEST_c", 'a', 1);
-		$ret = $ssdb->hlist("TEST_a", "TEST_b", 100);
+		$rows = $ssdb->hlist("TEST_a", "TEST_b", 100);
+		$ret = $this->hlist_names($rows);
 		$this->assert(count($ret) == 1);
 		$this->assert($ret[0] == "TEST_b");
 
@@ -546,4 +568,3 @@ class UnitTest{
 
 $test = new SSDBTest();
 $test->run();
-

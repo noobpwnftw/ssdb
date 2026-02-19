@@ -33,7 +33,8 @@ public:
 	RedisLink(){
 		req_desc = NULL;
 	}
-	
+	static void init();
+
 	const std::vector<Bytes>* recv_req(Buffer *input);
 	int send_resp(Buffer *output, const std::vector<std::string> &resp);
 };

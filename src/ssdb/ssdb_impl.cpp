@@ -4,10 +4,13 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 */
 #include "ssdb_impl.h"
-#include "leveldb/env.h"
-#include "leveldb/iterator.h"
-#include "leveldb/cache.h"
-#include "leveldb/filter_policy.h"
+#include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/table.h"
+#include "chess_merge.h"
+#include <table/terark_zip_table.h>
 
 #include "iterator.h"
 #include "t_kv.h"
@@ -25,40 +28,54 @@ SSDBImpl::~SSDBImpl(){
 		delete binlogs;
 	}
 	if(ldb){
+		for (int i = 0; i < cfHandles.size(); i++) {
+			ldb->DestroyColumnFamilyHandle(cfHandles[i]);
+		}
 		delete ldb;
-	}
-	if(options.block_cache){
-		delete options.block_cache;
-	}
-	if(options.filter_policy){
-		delete options.filter_policy;
 	}
 }
 
 SSDB* SSDB::open(const Options &opt, const std::string &dir){
 	SSDBImpl *ssdb = new SSDBImpl();
-	ssdb->options.max_file_size = 32 * 1048576; // leveldb 1.20
 	ssdb->options.create_if_missing = true;
+	ssdb->options.create_missing_column_families = true;
+	ssdb->options.IncreaseParallelism();
+	ssdb->options.OptimizeUniversalStyleCompaction(1024ULL * 1024 * 4 * opt.write_buffer_size);
 	ssdb->options.max_open_files = opt.max_open_files;
-	ssdb->options.filter_policy = leveldb::NewBloomFilterPolicy(10);
-	ssdb->options.block_cache = leveldb::NewLRUCache(opt.cache_size * 1048576);
-	ssdb->options.block_size = opt.block_size * 1024;
-	ssdb->options.write_buffer_size = opt.write_buffer_size * 1024 * 1024;
-	ssdb->options.compaction_speed = opt.compaction_speed;
-	if(opt.compression == "yes"){
-		ssdb->options.compression = leveldb::kSnappyCompression;
+	ssdb->options.target_file_size_base = 1024ULL * 1024 * opt.sst_size;
+	ssdb->options.merge_operator.reset(new ChessMergeOperator());
+	ssdb->options.memtable_factory.reset(TERARKDB_NAMESPACE::NewPatriciaTrieRepFactory());
+	ssdb->options.enable_pipelined_write = true;
+	ssdb->options.stats_dump_period_sec = 0;
+	ssdb->options.delete_obsolete_files_period_micros = 0;
+	ssdb->options.max_manifest_file_size = 0;
+	ssdb->options.blob_size = -1;
+	ssdb->options.compaction_options_universal.allow_trivial_move = true;
+	ssdb->options.compaction_options_universal.size_ratio = 100;
+
+	if(opt.compression){
+		ssdb->options.compression = TERARKDB_NAMESPACE::kLZ4Compression;
+		ssdb->options.compression_opts.max_dict_bytes = 1024ULL * 64;
+		ssdb->options.compression_opts.zstd_max_train_bytes = 1024ULL * 256;
+		ssdb->options.bottommost_compression = TERARKDB_NAMESPACE::kZSTD;
 	}else{
-		ssdb->options.compression = leveldb::kNoCompression;
+		ssdb->options.compression = TERARKDB_NAMESPACE::kNoCompression;
 	}
+	ssdb->write_opts.disableWAL = !opt.wal;
 
-	leveldb::Status status;
-
-	status = leveldb::DB::Open(ssdb->options, dir, &ssdb->ldb);
-	if(!status.ok()){
+	static const std::string kOplogCF = "oplogCF";
+	TERARKDB_NAMESPACE::ColumnFamilyOptions oplogOptions;
+	oplogOptions.OptimizeUniversalStyleCompaction();
+	std::vector<TERARKDB_NAMESPACE::ColumnFamilyDescriptor> cfDescriptors = {
+		TERARKDB_NAMESPACE::ColumnFamilyDescriptor(TERARKDB_NAMESPACE::kDefaultColumnFamilyName, ssdb->options),
+		TERARKDB_NAMESPACE::ColumnFamilyDescriptor(kOplogCF, oplogOptions)
+	};
+	TERARKDB_NAMESPACE::Status status = TERARKDB_NAMESPACE::DB::Open(ssdb->options, dir, cfDescriptors, &ssdb->cfHandles, &ssdb->ldb);
+	if (!status.ok()) {
 		log_error("open db failed: %s", status.ToString().c_str());
 		goto err;
 	}
-	ssdb->binlogs = new BinlogQueue(ssdb->ldb, opt.binlog, opt.binlog_capacity);
+	ssdb->binlogs = new BinlogQueue(ssdb->ldb, ssdb->cfHandles, opt.binlog, opt.binlog_capacity, opt.wal);
 
 	return ssdb;
 err:
@@ -72,12 +89,11 @@ int SSDBImpl::flushdb(){
 	int ret = 0;
 	bool stop = false;
 	{
-		Transaction trans(binlogs);
 		while(!stop){
-			leveldb::Iterator *it;
-			leveldb::ReadOptions iterate_options;
+			TERARKDB_NAMESPACE::WriteBatch batch;
+			TERARKDB_NAMESPACE::Iterator *it;
+			TERARKDB_NAMESPACE::ReadOptions iterate_options;
 			iterate_options.fill_cache = false;
-			leveldb::WriteOptions write_opts;
 
 			it = ldb->NewIterator(iterate_options);
 			it->SeekToFirst();
@@ -87,14 +103,14 @@ int SSDBImpl::flushdb(){
 					break;
 				}
 				//log_debug("%s", hexmem(it->key().data(), it->key().size()).c_str());
-				leveldb::Status s = ldb->Delete(write_opts, it->key());
-				if(!s.ok()){
-					log_error("del error: %s", s.ToString().c_str());
-					stop = true;
-					ret = -1;
-					break;
-				}
+				batch.Delete(it->key());
 				it->Next();
+			}
+			TERARKDB_NAMESPACE::Status s = ldb->Write(write_opts, &batch);
+			if(!s.ok()){
+				log_error("del error: %s", s.ToString().c_str());
+				stop = true;
+				ret = -1;
 			}
 			delete it;
 		}
@@ -104,8 +120,8 @@ int SSDBImpl::flushdb(){
 }
 
 Iterator* SSDBImpl::iterator(const std::string &start, const std::string &end, uint64_t limit){
-	leveldb::Iterator *it;
-	leveldb::ReadOptions iterate_options;
+	TERARKDB_NAMESPACE::Iterator *it;
+	TERARKDB_NAMESPACE::ReadOptions iterate_options;
 	iterate_options.fill_cache = false;
 	it = ldb->NewIterator(iterate_options);
 	it->Seek(start);
@@ -116,8 +132,8 @@ Iterator* SSDBImpl::iterator(const std::string &start, const std::string &end, u
 }
 
 Iterator* SSDBImpl::rev_iterator(const std::string &start, const std::string &end, uint64_t limit){
-	leveldb::Iterator *it;
-	leveldb::ReadOptions iterate_options;
+	TERARKDB_NAMESPACE::Iterator *it;
+	TERARKDB_NAMESPACE::ReadOptions iterate_options;
 	iterate_options.fill_cache = false;
 	it = ldb->NewIterator(iterate_options);
 	it->Seek(start);
@@ -132,8 +148,7 @@ Iterator* SSDBImpl::rev_iterator(const std::string &start, const std::string &en
 /* raw operates */
 
 int SSDBImpl::raw_set(const Bytes &key, const Bytes &val){
-	leveldb::WriteOptions write_opts;
-	leveldb::Status s = ldb->Put(write_opts, slice(key), slice(val));
+	TERARKDB_NAMESPACE::Status s = ldb->Put(write_opts, slice(key), slice(val));
 	if(!s.ok()){
 		log_error("set error: %s", s.ToString().c_str());
 		return -1;
@@ -142,8 +157,7 @@ int SSDBImpl::raw_set(const Bytes &key, const Bytes &val){
 }
 
 int SSDBImpl::raw_del(const Bytes &key){
-	leveldb::WriteOptions write_opts;
-	leveldb::Status s = ldb->Delete(write_opts, slice(key));
+	TERARKDB_NAMESPACE::Status s = ldb->Delete(write_opts, slice(key));
 	if(!s.ok()){
 		log_error("del error: %s", s.ToString().c_str());
 		return -1;
@@ -152,13 +166,12 @@ int SSDBImpl::raw_del(const Bytes &key){
 }
 
 int SSDBImpl::raw_get(const Bytes &key, std::string *val){
-	leveldb::ReadOptions opts;
+	TERARKDB_NAMESPACE::ReadOptions opts;
 	opts.fill_cache = false;
-	leveldb::Status s = ldb->Get(opts, slice(key), val);
+	TERARKDB_NAMESPACE::Status s = ldb->Get(opts, slice(key), val);
 	if(s.IsNotFound()){
 		return 0;
-	}
-	if(!s.ok()){
+	}else if(!s.ok()){
 		log_error("get error: %s", s.ToString().c_str());
 		return -1;
 	}
@@ -166,12 +179,8 @@ int SSDBImpl::raw_get(const Bytes &key, std::string *val){
 }
 
 uint64_t SSDBImpl::size(){
-	std::string s = "A";
-	std::string e(1, 'z' + 1);
-	leveldb::Range ranges[1];
-	ranges[0] = leveldb::Range(s, e);
 	uint64_t sizes[1];
-	ldb->GetApproximateSizes(ranges, 1, sizes);
+	ldb->GetIntProperty(cfHandles[kDefaultCFHandle], "rocksdb.estimate-num-keys", sizes);
 	return sizes[0];
 }
 
@@ -191,8 +200,8 @@ std::vector<std::string> SSDBImpl::info(){
 		keys.push_back(buf);
 	}
 	*/
-	keys.push_back("leveldb.stats");
-	//keys.push_back("leveldb.sstables");
+	keys.push_back("rocksdb.stats");
+	//keys.push_back("rocksdb.sstables");
 
 	for(size_t i=0; i<keys.size(); i++){
 		std::string key = keys[i];
@@ -207,7 +216,9 @@ std::vector<std::string> SSDBImpl::info(){
 }
 
 void SSDBImpl::compact(){
-	ldb->CompactRange(NULL, NULL);
+	TERARKDB_NAMESPACE::CompactRangeOptions opts;
+	opts.exclusive_manual_compaction = false;
+	ldb->CompactRange(opts, nullptr, nullptr);
 }
 
 int SSDBImpl::key_range(std::vector<std::string> *keys){
@@ -247,12 +258,12 @@ int SSDBImpl::key_range(std::vector<std::string> *keys){
 	}
 	delete it;
 	
-	it = this->iterator(encode_hsize_key(""), "", 1);
+	it = this->iterator(encode_hash_name(""), "", 1);
 	if(it->next()){
 		Bytes ks = it->key();
-		if(ks.data()[0] == DataType::HSIZE){
+		if(ks.data()[0] == DataType::HASH){
 			std::string n;
-			if(decode_hsize_key(ks, &n) == -1){
+			if(decode_hash_name(ks, &n) == -1){
 				ret = -1;
 			}else{
 				hstart = n;
@@ -261,12 +272,12 @@ int SSDBImpl::key_range(std::vector<std::string> *keys){
 	}
 	delete it;
 	
-	it = this->rev_iterator(encode_hsize_key("\xff"), "", 1);
+	it = this->rev_iterator(encode_hash_name("\xff"), "", 1);
 	if(it->next()){
 		Bytes ks = it->key();
-		if(ks.data()[0] == DataType::HSIZE){
+		if(ks.data()[0] == DataType::HASH){
 			std::string n;
-			if(decode_hsize_key(ks, &n) == -1){
+			if(decode_hash_name(ks, &n) == -1){
 				ret = -1;
 			}else{
 				hend = n;
