@@ -5,6 +5,7 @@ found in the LICENSE file.
 */
 #include "resp.h"
 #include <stdio.h>
+#include <utility>
 
 int Response::size() const{
 	return (int)resp.size();
@@ -96,6 +97,7 @@ void Response::reply_list(int status, const std::vector<std::string> &list){
 	if(status == -1){
 		resp.push_back("error");
 	}else{
+		resp.reserve(resp.size() + 1 + list.size());
 		resp.push_back("ok");
 		for(int i=0; i<list.size(); i++){
 			resp.push_back(list[i]);
@@ -103,3 +105,14 @@ void Response::reply_list(int status, const std::vector<std::string> &list){
 	}
 }
 
+void Response::reply_list(int status, std::vector<std::string> &&list){
+	if(status == -1){
+		resp.push_back("error");
+	}else{
+		resp.reserve(resp.size() + 1 + list.size());
+		resp.push_back("ok");
+		for(auto &item : list){
+			resp.push_back(std::move(item));
+		}
+	}
+}

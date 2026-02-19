@@ -43,7 +43,7 @@ void* BackendDump::_run_thread(void *arg){
 
 	std::string start = "";
 	if(req->size() > 1){
-		Bytes b = req->at(1);
+		const Bytes &b = (*req)[1];
 		start.assign(b.data(), b.size());
 	}
 	if(start.empty()){
@@ -51,13 +51,12 @@ void* BackendDump::_run_thread(void *arg){
 	}
 	std::string end = "";
 	if(req->size() > 2){
-		Bytes b = req->at(2);
+		const Bytes &b = (*req)[2];
 		end.assign(b.data(), b.size());
 	}
 	uint64_t limit = 10;
 	if(req->size() > 3){
-		Bytes b = req->at(3);
-		limit = b.Uint64();
+		limit = (*req)[3].Uint64();
 	}
 
 	log_info("fd: %d, begin to dump data: '%s', '%s', %" PRIu64 "",

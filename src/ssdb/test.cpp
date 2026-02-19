@@ -12,7 +12,8 @@ int main(int argc, char **argv){
 	set_log_level(Logger::LEVEL_TRACE);
 	std::string work_dir = "./tmp/a";
 	Options opt;
-	opt.compression = "no";
+	opt.compression = false;
+	opt.wal = false;
 
 	SSDB *ssdb = NULL;
 	ssdb = SSDB::open(opt, work_dir);
@@ -26,7 +27,7 @@ int main(int argc, char **argv){
 	
 	val.append(1024 * 1024, 'a');
 	ssdb->raw_set("tmp", val);
-	ssdb->compact();
+	ssdb->compact(1);
 
 	uint64_t size;
 	size = ssdb->size();

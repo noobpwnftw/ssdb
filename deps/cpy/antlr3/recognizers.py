@@ -173,8 +173,8 @@ class BaseRecognizer(object):
                    self.antlr_version_str))
         elif (self.antlr_version < (3, 1, 0, 0) and
               self.antlr_version != runtime_version):
-            print self.antlr_version
-            print runtime_version
+            print(self.antlr_version)
+            print(runtime_version)
             # FIXME: make the runtime compatible with 3.0.1 codegen
             # and remove this block.
             raise RuntimeError(
@@ -580,7 +580,7 @@ class BaseRecognizer(object):
         and, hence, the follow context stack is:
 
         depth  local follow set     after call to rule
-          0         \<EOF>                    a (from main())
+          0         <EOF>                    a (from main())
           1          ']'                     b
           3          '^'                     c
 
@@ -1150,11 +1150,11 @@ class Lexer(BaseRecognizer, TokenSource):
 
                 return self._state.token
 
-            except NoViableAltException, re:
-                self.reportError(re)
-                self.recover(re) # throw out current char and try again
+            except NoViableAltException as nv:
+                self.reportError(nv)
+                self.recover(nv) # throw out current char and try again
 
-            except RecognitionException, re:
+            except RecognitionException as re:
                 self.reportError(re)
                 # match() routine has already called recover()
 
@@ -1219,7 +1219,7 @@ class Lexer(BaseRecognizer, TokenSource):
 
 
     def match(self, s):
-        if isinstance(s, basestring):
+        if isinstance(s, str):
             for c in s:
                 if self.input.LA(1) != ord(c):
                     if self._state.backtracking > 0:

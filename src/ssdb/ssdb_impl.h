@@ -6,8 +6,8 @@ found in the LICENSE file.
 #ifndef SSDB_IMPL_H_
 #define SSDB_IMPL_H_
 
-#include "leveldb/db.h"
-#include "leveldb/slice.h"
+#include "rocksdb/db.h"
+#include "rocksdb/slice.h"
 #include "../include.h"
 #include "../util/log.h"
 #include "../util/config.h"
@@ -20,18 +20,16 @@ found in the LICENSE file.
 #include "t_zset.h"
 #include "t_queue.h"
 
-inline
-static leveldb::Slice slice(const Bytes &b){
-	return leveldb::Slice(b.data(), b.size());
-}
-
 class SSDBImpl : public SSDB
 {
 private:
 	friend class SSDB;
-	leveldb::DB* ldb;
-	leveldb::Options options;
-	
+	TERARKDB_NAMESPACE::DB* ldb;
+	TERARKDB_NAMESPACE::Options options;
+	std::vector<TERARKDB_NAMESPACE::ColumnFamilyHandle*> cfHandles;
+	TERARKDB_NAMESPACE::ReadOptions read_opts;
+	TERARKDB_NAMESPACE::WriteOptions write_opts;
+
 	SSDBImpl();
 public:
 	BinlogQueue *binlogs;
@@ -44,10 +42,9 @@ public:
 	virtual Iterator* iterator(const std::string &start, const std::string &end, uint64_t limit);
 	virtual Iterator* rev_iterator(const std::string &start, const std::string &end, uint64_t limit);
 
-	//void flushdb();
 	virtual uint64_t size();
 	virtual std::vector<std::string> info();
-	virtual void compact();
+	virtual void compact(int flag);
 	virtual int key_range(std::vector<std::string> *keys);
 	
 	/* raw operates */
@@ -55,7 +52,7 @@ public:
 	// repl: whether to sync this operation to slaves
 	virtual int raw_set(const Bytes &key, const Bytes &val);
 	virtual int raw_del(const Bytes &key);
-	virtual int raw_get(const Bytes &key, std::string *val);
+	virtual int raw_get(const Bytes &key, TERARKDB_NAMESPACE::LazyBuffer *val);
 
 	/* key value */
 
@@ -76,24 +73,27 @@ public:
 	virtual KIterator* rscan(const Bytes &start, const Bytes &end, uint64_t limit);
 
 	/* hash */
-
+	virtual int migrate_hset(const std::vector<Bytes>& items, int offset, char log_type=BinlogType::SYNC);
+	virtual int sync_hset(const Bytes &name, const Bytes &val, char log_type=BinlogType::SYNC);
+	virtual int sync_hdel(const Bytes &name, char log_type=BinlogType::SYNC);
 	virtual int hset(const Bytes &name, const Bytes &key, const Bytes &val, char log_type=BinlogType::SYNC);
 	virtual int hdel(const Bytes &name, const Bytes &key, char log_type=BinlogType::SYNC);
 	// -1: error, 1: ok, 0: value is not an integer or out of range
 	virtual int hincr(const Bytes &name, const Bytes &key, int64_t by, int64_t *new_val, char log_type=BinlogType::SYNC);
-	//int multi_hset(const Bytes &name, const std::vector<Bytes> &kvs, int offset=0, char log_type=BinlogType::SYNC);
-	//int multi_hdel(const Bytes &name, const std::vector<Bytes> &keys, int offset=0, char log_type=BinlogType::SYNC);
+	virtual int multi_hset(const Bytes &name, const std::vector<Bytes> &kvs, int offset=0, char log_type=BinlogType::SYNC);
+	virtual int multi_hdel(const Bytes &name, const std::vector<Bytes> &keys, int offset=0, char log_type=BinlogType::SYNC);
 
 	virtual int64_t hsize(const Bytes &name);
-	virtual int64_t hclear(const Bytes &name);
+	virtual int64_t hclear(const Bytes &name, char log_type=BinlogType::SYNC);
 	virtual int hget(const Bytes &name, const Bytes &key, std::string *val);
+	virtual int multi_hget(const Bytes &name, const std::vector<Bytes> &keys, int offset, std::vector<std::string> &vals);
+	virtual int hgetall(const Bytes &name, std::vector<StrPair>& vals);
 	virtual int hlist(const Bytes &name_s, const Bytes &name_e, uint64_t limit,
 			std::vector<std::string> *list);
 	virtual int hrlist(const Bytes &name_s, const Bytes &name_e, uint64_t limit,
 			std::vector<std::string> *list);
 	virtual HIterator* hscan(const Bytes &name, const Bytes &start, const Bytes &end, uint64_t limit);
 	virtual HIterator* hrscan(const Bytes &name, const Bytes &start, const Bytes &end, uint64_t limit);
-	virtual int64_t hfix(const Bytes &name);
 
 	/* zset */
 

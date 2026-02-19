@@ -27,6 +27,28 @@ function qclear(link, zname, verbose=true){
 	}
 	return ret;
 }
+
+function hlist_names(rows){
+	names = [];
+	i = 0;
+	while(i < len(rows)){
+		name = rows[i];
+		i += 1;
+		if(i >= len(rows)){
+			break;
+		}
+		cnt = int(rows[i]);
+		i += 1;
+		skip = cnt * 2;
+		if(skip < 0 || (i + skip > len(rows))){
+			break;
+		}
+		i += skip;
+		names.append(name);
+	}
+	return names;
+}
+
 function flushdb(link, data_type){
 	resp = link.request('info');
 	for(i=1; i<len(resp.data); i+=2){
@@ -84,8 +106,12 @@ function flushdb(link, data_type){
 			if(len(resp.data) == 0){
 				break;
 			}
+			names = hlist_names(resp.data);
+			if(len(names) == 0){
+				break;
+			}
 			last_num = 0;
-			foreach(resp.data as hname){
+			foreach(names as hname){
 				d_hash += 1;
 				deleted_num = hclear(link, hname, false);
 				d_hkeys += deleted_num;

@@ -4,8 +4,9 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 */
 #include "proc_queue.h"
+#include <utility>
 
-int proc_qsize(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qsize(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 
@@ -14,7 +15,7 @@ int proc_qsize(NetworkServer *net, Link *link, const Request &req, Response *res
 	return 0;
 }
 
-int proc_qfront(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qfront(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 
@@ -24,7 +25,7 @@ int proc_qfront(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_qback(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qback(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 
@@ -38,7 +39,7 @@ static int QFRONT = 2;
 static int QBACK  = 3;
 
 static inline
-int proc_qpush_func(NetworkServer *net, Link *link, const Request &req, Response *resp, int front_or_back){
+int proc_qpush_func(NetworkServer *net, const Request &req, Response *resp, int front_or_back){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -61,21 +62,21 @@ int proc_qpush_func(NetworkServer *net, Link *link, const Request &req, Response
 	return 0;
 }
 
-int proc_qpush_front(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	return proc_qpush_func(net, link, req, resp, QFRONT);
+int proc_qpush_front(NetworkServer *net, const Request &req, Response *resp){
+	return proc_qpush_func(net, req, resp, QFRONT);
 }
 
-int proc_qpush_back(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	return proc_qpush_func(net, link, req, resp, QBACK);
+int proc_qpush_back(NetworkServer *net, const Request &req, Response *resp){
+	return proc_qpush_func(net, req, resp, QBACK);
 }
 
-int proc_qpush(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	return proc_qpush_func(net, link, req, resp, QBACK);
+int proc_qpush(NetworkServer *net, const Request &req, Response *resp){
+	return proc_qpush_func(net, req, resp, QBACK);
 }
 
 
 static inline
-int proc_qpop_func(NetworkServer *net, Link *link, const Request &req, Response *resp, int front_or_back){
+int proc_qpop_func(NetworkServer *net, const Request &req, Response *resp, int front_or_back){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 	
@@ -113,20 +114,20 @@ int proc_qpop_func(NetworkServer *net, Link *link, const Request &req, Response 
 	return 0;
 }
 
-int proc_qpop_front(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	return proc_qpop_func(net, link, req, resp, QFRONT);
+int proc_qpop_front(NetworkServer *net, const Request &req, Response *resp){
+	return proc_qpop_func(net, req, resp, QFRONT);
 }
 
-int proc_qpop_back(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	return proc_qpop_func(net, link, req, resp, QBACK);
+int proc_qpop_back(NetworkServer *net, const Request &req, Response *resp){
+	return proc_qpop_func(net, req, resp, QBACK);
 }
 
-int proc_qpop(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	return proc_qpop_func(net, link, req, resp, QFRONT);
+int proc_qpop(NetworkServer *net, const Request &req, Response *resp){
+	return proc_qpop_func(net, req, resp, QFRONT);
 }
 
 static inline
-int proc_qtrim_func(NetworkServer *net, Link *link, const Request &req, Response *resp, int front_or_back){
+int proc_qtrim_func(NetworkServer *net, const Request &req, Response *resp, int front_or_back){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 	
@@ -153,37 +154,37 @@ int proc_qtrim_func(NetworkServer *net, Link *link, const Request &req, Response
 	return 0;
 }
 
-int proc_qtrim_front(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	return proc_qtrim_func(net, link, req, resp, QFRONT);
+int proc_qtrim_front(NetworkServer *net, const Request &req, Response *resp){
+	return proc_qtrim_func(net, req, resp, QFRONT);
 }
 
-int proc_qtrim_back(NetworkServer *net, Link *link, const Request &req, Response *resp){
-	return proc_qtrim_func(net, link, req, resp, QBACK);
+int proc_qtrim_back(NetworkServer *net, const Request &req, Response *resp){
+	return proc_qtrim_func(net, req, resp, QBACK);
 }
 
-int proc_qlist(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qlist(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
 	uint64_t limit = req[3].Uint64();
 	std::vector<std::string> list;
 	int ret = serv->ssdb->qlist(req[1], req[2], limit, &list);
-	resp->reply_list(ret, list);
+	resp->reply_list(ret, std::move(list));
 	return 0;
 }
 
-int proc_qrlist(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qrlist(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
 	uint64_t limit = req[3].Uint64();
 	std::vector<std::string> list;
 	int ret = serv->ssdb->qrlist(req[1], req[2], limit, &list);
-	resp->reply_list(ret, list);
+	resp->reply_list(ret, std::move(list));
 	return 0;
 }
 
-int proc_qfix(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qfix(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 
@@ -196,7 +197,7 @@ int proc_qfix(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_qclear(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qclear(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(2);
 
@@ -216,7 +217,7 @@ int proc_qclear(NetworkServer *net, Link *link, const Request &req, Response *re
 	return 0;
 }
 
-int proc_qslice(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qslice(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -224,11 +225,11 @@ int proc_qslice(NetworkServer *net, Link *link, const Request &req, Response *re
 	int64_t end = req[3].Int64();
 	std::vector<std::string> list;
 	int ret = serv->ssdb->qslice(req[1], begin, end, &list);
-	resp->reply_list(ret, list);
+	resp->reply_list(ret, std::move(list));
 	return 0;
 }
 
-int proc_qrange(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qrange(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 
@@ -242,11 +243,11 @@ int proc_qrange(NetworkServer *net, Link *link, const Request &req, Response *re
 	}
 	std::vector<std::string> list;
 	int ret = serv->ssdb->qslice(req[1], begin, end, &list);
-	resp->reply_list(ret, list);
+	resp->reply_list(ret, std::move(list));
 	return 0;
 }
 
-int proc_qget(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qget(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(3);
 
@@ -257,7 +258,7 @@ int proc_qget(NetworkServer *net, Link *link, const Request &req, Response *resp
 	return 0;
 }
 
-int proc_qset(NetworkServer *net, Link *link, const Request &req, Response *resp){
+int proc_qset(NetworkServer *net, const Request &req, Response *resp){
 	SSDBServer *serv = (SSDBServer *)net->data;
 	CHECK_NUM_PARAMS(4);
 

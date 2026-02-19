@@ -8,9 +8,15 @@ found in the LICENSE file.
 
 #include <inttypes.h>
 #include <string>
+#include <vector>
 #include "../util/bytes.h"
+#include "rocksdb/terark_namespace.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
 
-namespace leveldb{
+using StrPair = std::pair<std::string, std::string>;
+
+namespace TERARKDB_NAMESPACE {
 	class Iterator;
 }
 
@@ -19,7 +25,8 @@ public:
 	enum Direction{
 		FORWARD, BACKWARD
 	};
-	Iterator(leveldb::Iterator *it,
+	Iterator(TERARKDB_NAMESPACE::DB *db,
+			const std::string &start,
 			const std::string &end,
 			uint64_t limit,
 			Direction direction=Iterator::FORWARD);
@@ -29,8 +36,9 @@ public:
 	Bytes key();
 	Bytes val();
 private:
-	leveldb::Iterator *it;
+	TERARKDB_NAMESPACE::Iterator *it;
 	std::string end;
+	TERARKDB_NAMESPACE::Slice end_slice;
 	uint64_t limit;
 	bool is_first;
 	int direction;
@@ -54,17 +62,19 @@ private:
 
 class HIterator{
 public:
-	std::string name;
 	std::string key;
 	std::string val;
 
-	HIterator(Iterator *it, const Bytes &name);
-	~HIterator();
-	void return_val(bool onoff);
+	HIterator(const Bytes &values,
+			const std::string &start,
+			const std::string &end,
+			uint64_t limit,
+			Iterator::Direction direction=Iterator::FORWARD);
 	bool next();
 private:
-	Iterator *it;
-	bool return_val_;
+	size_t index;
+	uint64_t limit;
+	std::vector<StrPair> values;
 };
 
 

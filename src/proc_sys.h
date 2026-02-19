@@ -8,17 +8,12 @@ found in the LICENSE file.
 #include "net/proc.h"
 #include "net/server.h"
 
-DEF_PROC(flushdb);
 DEF_PROC(info);
+DEF_PROC(redis_info);
 DEF_PROC(version);
 DEF_PROC(dbsize);
 DEF_PROC(compact);
-DEF_PROC(dump);
-DEF_PROC(sync140);
-DEF_PROC(slaveof);
+DEF_LINK_PROC(dump);
+DEF_LINK_PROC(sync140);
 DEF_PROC(clear_binlog);
-
-DEF_PROC(get_key_range);
-DEF_PROC(ignore_key_range);
-DEF_PROC(get_kv_range);
-DEF_PROC(set_kv_range);
+DEF_PROC(flushdb);
